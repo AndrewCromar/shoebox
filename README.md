@@ -17,7 +17,7 @@ A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/
 - **Keys** (the bar at the bottom changes with where you are: folders, photos or viewing): ↑↓ folders, → or Enter to the
   thumbnails, Esc back. `+` `−` or Ctrl+wheel change the thumbnail size.
   `o` opens the file in its usual app, `d` shows it in the file manager (Dolphin), `f` full screen, F5 reloads,
-  `q` quits. The outline on a thumbnail only shows while you're in the photos.
+  `q` quits, `/` or Ctrl+F searches the folder names (Enter keeps the filter, Esc clears it). The outline on a thumbnail only shows while you're in the photos.
 
 Read-only: it never moves, renames or edits anything in the library. Thumbnails are cached in `~/.cache/gallery`
 (delete it any time). HEIC photos work through pillow-heif.

@@ -17,7 +17,7 @@ from PIL import Image, ImageOps
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QLabel, QListView, QSplitter,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLineEdit, QListView, QSplitter,
                                QStackedWidget, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
@@ -35,6 +35,9 @@ QWidget {{ background: {C['bg']}; color: {C['fg']}; font-size: 11pt; }}
 QLabel {{ background: transparent; }}
 QTreeWidget, QListView {{ border: none; outline: none; }}
 QTreeWidget {{ background: {C['panel']}; }}
+QLineEdit {{ background: {C['bg']}; border: none; border-bottom: 1px solid {C['line']}; padding: 10px 14px;
+            color: {C['fg']}; selection-background-color: #3a4036; }}
+QLineEdit:focus {{ border-bottom: 1px solid {C['acc']}; }}
 QTreeWidget::item {{ padding: 4px 2px; }}
 QTreeWidget::item:selected {{ background: {C['sel']}; color: {C['acc']}; }}
 QTreeWidget::item:hover {{ background: {C['cur']}; }}
@@ -431,7 +434,17 @@ class Gallery(QWidget):
         self.tree.setIndentation(16)
         self.tree.setMinimumWidth(300)
         self.tree.currentItemChanged.connect(self.folder_changed)
-        browse.addWidget(self.tree)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(0)
+        self.search = Search()
+        self.search.setPlaceholderText("search folders  ( / )")
+        self.search.textChanged.connect(self.filter_tree)
+        self.search.done.connect(self.search_done)
+        lv.addWidget(self.search)
+        lv.addWidget(self.tree, 1)
+        browse.addWidget(left)
 
         right = QWidget()
         rv = QVBoxLayout(right)
@@ -471,6 +484,8 @@ class Gallery(QWidget):
         QShortcut(QKeySequence("Q"), self, QApplication.quit)
         QApplication.instance().focusChanged.connect(self.focus_moved)
         QShortcut(QKeySequence("F5"), self, self.reload)
+        QShortcut(QKeySequence("/"), self, self.start_search)
+        QShortcut(QKeySequence("Ctrl+F"), self, self.start_search)
         self.reload()
         self.tree.setFocus()
 
@@ -515,6 +530,46 @@ class Gallery(QWidget):
                     y.child(0).setExpanded(True)
         target = self.find(was) if was else None
         self.tree.setCurrentItem(target or first)
+
+    # ---- search
+    def start_search(self):
+        if self.pages.currentWidget() is self.viewer:
+            return
+        self.search.setFocus()
+        self.search.selectAll()
+
+    def filter_tree(self, text: str):
+        """Show folders whose name has the text (and everything under a matching year, month or folder)."""
+        q = text.strip().lower()
+
+        def walk(it: QTreeWidgetItem, shown_by_parent: bool) -> bool:
+            hit = shown_by_parent or not q or q in it.text(0).lower()
+            child_hit = False
+            for i in range(it.childCount()):
+                child_hit |= walk(it.child(i), hit)
+            visible = hit or child_hit
+            it.setHidden(not visible)
+            if q and child_hit:
+                it.setExpanded(True)
+            return visible
+        first = None
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i), False)
+        if q:  # land on the first matching folder
+            it = self.tree.topLevelItem(0)
+            while it:
+                if not it.isHidden() and q in it.text(0).lower():
+                    first = it
+                    break
+                it = self.tree.itemBelow(it)
+            if first:
+                self.tree.setCurrentItem(first)
+
+    def search_done(self, keep: bool):
+        """Enter or ↓: keep the filter and go to the folders. Esc: clear it."""
+        if not keep:
+            self.search.clear()
+        self.tree.setFocus()
 
     def bold(self) -> QFont:
         f = QFont(FONT, 11)
@@ -661,12 +716,14 @@ class Gallery(QWidget):
                 keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s")]
             keys += [("o", "open in its app"), ("d", "show in file manager"), ("f", "full screen"),
                      ("esc", "back to thumbnails"), ("q", "quit")]
+        elif self.search.hasFocus():
+            keys = [("SEARCH", ""), ("type", "filter folders"), ("enter ↓", "to the folders"), ("esc", "clear")]
         elif self.grid.hasFocus():
             keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("o", "open in its app"),
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("d", "open in file manager"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
+                    ("/", "search"), ("d", "open in file manager"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
@@ -677,6 +734,18 @@ class Gallery(QWidget):
     def closeEvent(self, e):
         self.viewer.video.stop()
         super().closeEvent(e)
+
+
+class Search(QLineEdit):
+    done = Signal(bool)  # True: keep the filter
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down):
+            self.done.emit(True)
+        elif e.key() == Qt.Key_Escape:
+            self.done.emit(False)
+        else:
+            super().keyPressEvent(e)
 
 
 class Tree(QTreeWidget):
