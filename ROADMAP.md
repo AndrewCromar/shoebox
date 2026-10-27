@@ -20,6 +20,13 @@ Branches: `main` is the last version Andrew said works; new work goes on `dev` a
    things from it. Nothing is deleted; anything thrown away goes to the trash.
    Matching: an image fingerprint (perceptual hash) plus the date taken.
 
+3. **Installer, updater, uninstaller** (Andrew, 2026-10-27), so friends don't deal with zips.
+   - Windows: a real installer (Inno Setup, built by the GitHub workflow): Start menu + desktop shortcut, shows in
+     *Add or remove programs* with an uninstaller. Mac: a .dmg to drag into Applications.
+   - Updater: on start, Shoebox checks the latest GitHub release; if newer, a small "Update available" note
+     with a button that downloads and runs the new installer. Needs the repo (or at least its releases) public.
+   - Uninstall keeps the photos (Shoebox never stores them); optionally removes its settings and thumbnails.
+
 ## Done
 - Year > month > event tree, misc and other groups below the years, search, settings (media folder, no default),
   reopens where you left off.
