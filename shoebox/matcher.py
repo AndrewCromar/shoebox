@@ -19,7 +19,7 @@ from . import thumbs
 from .library import kind
 
 SAME, MAYBE = 6, 11  # bits that may differ: <= SAME is the same photo, <= MAYBE probably
-FILE = thumbs.CACHE.parent / "fingerprints.json"
+FILE = thumbs.CACHE.parent / "fingerprints-2.json"  # -2: with the turned hashes
 _lock = threading.Lock()
 _db: dict | None = None
 
@@ -76,9 +76,10 @@ def fingerprint(p: Path) -> dict | None:
         jpg, meta = thumbs.cached(p) or thumbs.make(p)
         with Image.open(jpg) as im:
             h = dhash(im)
+            turned = [dhash(im.rotate(deg, expand=True)) for deg in (90, 180, 270)]
     except Exception:
         return None
-    fp = {"h": h, "t": _when(meta.get("taken", "")), "d": meta.get("duration"), "kind": kind(p)}
+    fp = {"h": h, "r": turned, "t": _when(meta.get("taken", "")), "d": meta.get("duration"), "kind": kind(p)}
     with _lock:
         _load()[k] = fp
     return fp
@@ -90,9 +91,14 @@ def distance(a: dict, b: dict) -> int | None:
         return None
     if a["kind"] in ("video", "audio") and a.get("d") and b.get("d") and abs(a["d"] - b["d"]) > 0.6:
         return None  # a different length is a different clip (a trimmed copy counts as new)
-    if a.get("t") and b.get("t") and abs(a["t"] - b["t"]) > 2 and abs(a["t"] - b["t"]) % 3600 > 2:
-        return None  # taken at different moments (an exact hours' gap is just a time zone)
-    return bin(a["h"] ^ b["h"]).count("1")
+    # also turned 90/180/270 degrees: a copy that lost its "rotate me" tag has its pixels sideways
+    bits = min(bin(a["h"] ^ h).count("1") for h in [b["h"], *b.get("r", [])])
+    gap = abs(a["t"] - b["t"]) if a.get("t") and b.get("t") else 0
+    if gap > 2 and min(gap % 3600, 3600 - gap % 3600) > 2:
+        # the dates disagree (an exact hours' gap would just be a time zone): normally a different shot, but
+        # pixel-identical means the same photo with changed metadata (an edit app, a wrong camera clock): maybe
+        return SAME + 1 if bits <= 2 else None
+    return bits
 
 
 def compare(new: list[Path], have: list[Path], progress=None) -> list[dict]:
