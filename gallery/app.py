@@ -423,7 +423,6 @@ class Gallery(QWidget):
         self.tree.setIndentation(16)
         self.tree.setMinimumWidth(300)
         self.tree.currentItemChanged.connect(self.folder_changed)
-        self.tree.itemActivated.connect(lambda *_: self.grid_focus())
         browse.addWidget(self.tree)
 
         right = QWidget()
@@ -655,7 +654,7 @@ class Gallery(QWidget):
             keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("o", "open in its app"),
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
-            keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "to the photos"),
+            keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
                     ("d", "open in file manager"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
@@ -670,12 +669,25 @@ class Gallery(QWidget):
 
 
 class Tree(QTreeWidget):
-    """→ on an open or empty folder goes to the thumbnails."""
+    """Enter (or a double-click) opens or closes a year, month or folder with subfolders, and goes to the
+    thumbnails of a folder with only photos. → on an open or photos-only folder goes to the thumbnails."""
     to_grid = Signal()
+
+    def mouseDoubleClickEvent(self, e):
+        it = self.itemAt(e.position().toPoint())
+        if it and not it.childCount():
+            self.to_grid.emit()
+        else:
+            super().mouseDoubleClickEvent(e)  # toggles it
 
     def keyPressEvent(self, e):
         it = self.currentItem()
-        if e.key() == Qt.Key_Right and it and (it.isExpanded() or not it.childCount()):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and it:
+            if it.childCount():
+                it.setExpanded(not it.isExpanded())
+            else:
+                self.to_grid.emit()
+        elif e.key() == Qt.Key_Right and it and (it.isExpanded() or not it.childCount()):
             self.to_grid.emit()
         else:
             super().keyPressEvent(e)
