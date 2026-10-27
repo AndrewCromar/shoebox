@@ -494,7 +494,7 @@ class Gallery(QWidget):
             if f.month:
                 mk = (f.year, f.month)
                 if mk not in months:
-                    m = QTreeWidgetItem(parent, [library.MONTHS[f.month - 1], ""])
+                    m = QTreeWidgetItem(parent, [f"{f.month:02d}  {library.MONTHS[f.month - 1]}", ""])
                     m.setData(0, Qt.UserRole, ("month", mk))
                     months[mk] = m
                 parent = months[mk]
