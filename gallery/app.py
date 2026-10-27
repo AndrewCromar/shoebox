@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QLa
 
 from . import library, thumbs
 
-ROOT = Path(os.environ.get("GALLERY_ROOT", "~/storage/Dropbox/Kids/Andrew/media/_photos and videos")).expanduser()
+ROOT = Path(os.environ.get("GALLERY_ROOT", "~/storage/Dropbox/Kids/Andrew/media")).expanduser()
 
 C = {"bg": "#111312", "panel": "#171a18", "cur": "#232722", "sel": "#1b2a1f", "line": "#262a27",
      "fg": "#e8e6df", "mid": "#a3a69d", "dim": "#5d625a", "acc": "#cfe3a8", "keep": "#7fbf6a", "cyan": "#8fc1c9"}
@@ -570,7 +570,8 @@ class Gallery(QWidget):
         kind, v = it.data(0, Qt.UserRole)
         if kind == "folder":
             title = v.name
-            when = f"{library.MONTHS[v.month - 1]} {int(v.day)}, {v.year}" if v.month and v.day else v.year
+            when = (f"{library.MONTHS[v.month - 1]} {int(v.day)}, {v.year}" if v.day else
+                    f"{library.MONTHS[v.month - 1]} {v.year}") if v.month else v.year
         elif kind == "month":
             title, when = f"{library.MONTHS[v[1] - 1]} {v[0]}", ""
         else:

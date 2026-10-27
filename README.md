@@ -1,15 +1,16 @@
 # gallery
 
-A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/media/_photos and videos/`.
+A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/media/`.
 
 ```
 ./gallery-app                # or "Gallery" in the KDE menu
 ./gallery-app /some/folder   # another library
 ```
 
-- **Left:** folders by year, then month (from names like `2026-06-05 Teton National Park`). Subfolders ("nick phone")
-  sit under their folder, and folders without a date ("2007-2023") are at the bottom. Picking a year or month shows
-  everything in it. Kdenlive `proxy/` folders are skipped.
+- **Left:** the library's own layout: `2026/06/Grand Teton National Park/` shows as 2026 > 06 June > the event
+  (newest first; events in a month by when their photos were taken). Other top folders (`misc/`, `drew.in.nature/`)
+  are groups below the years, misc first. Subfolders sit under their event. Older `2026-06-05 Title` folders work
+  too. Picking a year or month shows everything in it. Kdenlive `proxy/` folders are skipped.
 - **Right:** thumbnails. Videos show ▶ and their length.
 - **Enter / double-click:** full size. ←→ next/previous; videos play inside the window (space pauses, shift ←→ jumps
   5 s, `,` `.` 1 s). Shows when it was taken (EXIF or the video's creation time).
