@@ -2,7 +2,8 @@
 
 <img src="assets/shoebox.svg" width="96" alt="Shoebox icon">
 
-A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/media/`.
+A Picasa-style photo, video and audio viewer. Point it at the folder with your photos and videos (it asks on the
+first start; change it any time in Settings).
 
 ```
 ./shoebox-app                # or "Shoebox" in the KDE menu / KRunner
@@ -21,7 +22,7 @@ A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/
   `o` opens the file in its usual app, `d` shows it in the file manager (Dolphin), `f` full screen, F5 reloads,
   `q` quits, `/` or Ctrl+F searches the folder names (Enter keeps the filter, Esc clears it). The outline on a thumbnail only shows while you're in the photos.
 
-**Settings (s):** pick the media folder (if it moves; remembered in `~/.config/shoebox/settings.json`) or
+**Settings (s):** pick the media folder (there's no default: the first start asks; remembered in `~/.config/shoebox/settings.json`) or
 clear the thumbnails.
 
 Read-only: it never moves, renames or edits anything in the library. Thumbnails are cached in `~/.cache/shoebox`

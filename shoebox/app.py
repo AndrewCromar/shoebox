@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDi
 
 from . import library, thumbs
 
-DEFAULT_ROOT = "~/storage/Dropbox/Kids/Andrew/media"
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "shoebox" / "settings.json"
 ICON = Path(__file__).resolve().parent.parent / "assets" / "shoebox.svg"
 
@@ -42,9 +41,10 @@ def save_settings(d: dict):
     CONFIG.write_text(json.dumps(d, indent=1) + "\n")
 
 
-def media_root() -> Path:
-    """The library: SHOEBOX_ROOT, else the folder picked in Settings, else Andrew's Dropbox media folder."""
-    return Path(os.environ.get("SHOEBOX_ROOT") or settings().get("root") or DEFAULT_ROOT).expanduser()
+def media_root() -> Path | None:
+    """The library: SHOEBOX_ROOT, else the folder picked in Settings. No default: the first start asks."""
+    r = os.environ.get("SHOEBOX_ROOT") or settings().get("root")
+    return Path(r).expanduser() if r else None
 
 
 ROOT = media_root()
@@ -520,9 +520,13 @@ class Shoebox(QWidget):
         cur = self.tree.currentItem()
         was = cur.data(0, Qt.UserRole) if cur else None
         self.tree.clear()
-        folders = library.scan(self.root) if self.root.is_dir() else []
-        if not folders:
-            self.head.setText(span(f"nothing found in {self.root}", "dim"))
+        folders = library.scan(self.root) if self.root and self.root.is_dir() else []
+        if not self.root:
+            self.head.setText(span("Welcome to Shoebox.", "fg", True)
+                              + span("   Press s (Settings) to choose your photos folder.", "mid"))
+        elif not folders:
+            self.head.setText(span(f"nothing found in {self.root}", "dim")
+                              + span("   (s: choose another folder)", "mid"))
         years, months = {}, {}
         first = None
         for f in folders:
@@ -740,7 +744,8 @@ class Shoebox(QWidget):
         if in_folders:
             it = self.tree.currentItem()
             kind, v = it.data(0, Qt.UserRole) if it else (None, None)
-            launch("xdg-open", v.path if kind == "folder" else self.root)
+            if kind == "folder" or self.root:
+                launch("xdg-open", v.path if kind == "folder" else self.root)
             return
         p = self.current_path()
         if p:  # the freedesktop "show this file" call: opens the default file manager with it selected
@@ -795,12 +800,9 @@ class Settings(QDialog):
         self.path.setWordWrap(True)
         v.addWidget(self.path)
         row = QHBoxLayout()
-        change = QPushButton("Choose another folder…")
+        change = QPushButton("Choose a folder…")
         change.clicked.connect(self.change)
         row.addWidget(change)
-        reset = QPushButton("Back to the default")
-        reset.clicked.connect(lambda: self.pick(Path(DEFAULT_ROOT).expanduser()))
-        row.addWidget(reset)
         row.addStretch(1)
         v.addLayout(row)
         v.addSpacing(14)
@@ -823,14 +825,17 @@ class Settings(QDialog):
 
     def show_state(self):
         r = self.win.root
-        self.path.setText(span(str(r), "fg" if r.is_dir() else "bad")
-                          + ("" if r.is_dir() else span("   (not found)", "dim")))
+        if not r:
+            self.path.setText(span("none yet: choose the folder with your photos and videos", "mid"))
+        else:
+            self.path.setText(span(str(r), "fg" if r.is_dir() else "bad")
+                              + ("" if r.is_dir() else span("   (not found)", "dim")))
         size = sum(f.stat().st_size for f in thumbs.CACHE.rglob("*") if f.is_file()) if thumbs.CACHE.exists() else 0
         self.cache.setText(span(f"{size / 1e6:.0f} MB in {thumbs.CACHE}", "mid")
                            + span("   (made again when needed; your photos aren't touched)", "dim"))
 
     def change(self):
-        d = QFileDialog.getExistingDirectory(self, "Choose your media folder", str(self.win.root))
+        d = QFileDialog.getExistingDirectory(self, "Choose your media folder", str(self.win.root or Path.home()))
         if d:
             self.pick(Path(d))
 
@@ -893,5 +898,7 @@ def main():
     w = Shoebox(root)
     w.resize(1600, 980)
     w.show()
+    if not root:  # first start: pick the photos folder
+        QTimer.singleShot(300, w.open_settings)
     code = app.exec()
     os._exit(code)  # don't wait for thumbnail workers
