@@ -23,7 +23,7 @@ first start; change it any time in Settings).
   `q` quits, `/` or Ctrl+F searches the folder names (Enter keeps the filter, Esc clears it). The outline on a thumbnail only shows while you're in the photos.
 
 **Settings (s):** pick the media folder (there's no default: the first start asks; remembered in `~/.config/shoebox/settings.json`) or
-clear the thumbnails.
+clear the thumbnails. It also remembers the last folder you looked at and opens there.
 
 Read-only: it never moves, renames or edits anything in the library. Thumbnails are cached in `~/.cache/shoebox`
 (delete it any time). HEIC photos work through pillow-heif.

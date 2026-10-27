@@ -558,8 +558,9 @@ class Shoebox(QWidget):
                 y.setExpanded(True)
                 if y.childCount():
                     y.child(0).setExpanded(True)
-        target = self.find(was) if was else None
+        target = self.find(was) if was else self.find_key(settings().get("last"))  # where you left off
         self.tree.setCurrentItem(target or first)
+        self.tree.scrollToItem(target or first, QAbstractItemView.PositionAtCenter)
 
     # ---- settings
     def open_settings(self):
@@ -652,6 +653,43 @@ class Shoebox(QWidget):
                 return got
         return None
 
+    @staticmethod
+    def key_of(data) -> list:
+        """A tree item as something settings.json can hold."""
+        kind, v = data
+        if kind == "folder":
+            return ["folder", str(v.path), v.name]
+        return [kind, *v] if kind == "month" else [kind, v]
+
+    def find_key(self, key) -> QTreeWidgetItem | None:
+        if not key:
+            return None
+        it = self.tree.topLevelItem(0)
+        while it:
+            if self.key_of(it.data(0, Qt.UserRole)) == key:
+                return it
+            it = self._next(it)
+        return None
+
+    def _next(self, it: QTreeWidgetItem) -> QTreeWidgetItem | None:
+        """The item after it in the whole tree, closed branches included."""
+        if it.childCount():
+            return it.child(0)
+        while it:
+            parent = it.parent()
+            siblings = parent.childCount() if parent else self.tree.topLevelItemCount()
+            i = (parent.indexOfChild(it) if parent else self.tree.indexOfTopLevelItem(it)) + 1
+            if i < siblings:
+                return parent.child(i) if parent else self.tree.topLevelItem(i)
+            it = parent
+        return None
+
+    def remember(self, it: QTreeWidgetItem):
+        try:
+            save_settings({**settings(), "last": self.key_of(it.data(0, Qt.UserRole))})
+        except OSError:
+            pass
+
     def files_of(self, it: QTreeWidgetItem) -> list[Path]:
         kind, v = it.data(0, Qt.UserRole)
         if kind == "folder":
@@ -664,6 +702,7 @@ class Shoebox(QWidget):
     def folder_changed(self, it, _prev=None):
         if not it:
             return
+        self.remember(it)
         files = self.files_of(it)
         self.items.set_paths(files)
         kind, v = it.data(0, Qt.UserRole)
