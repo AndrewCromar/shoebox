@@ -84,7 +84,7 @@ ln -s "$PWD/assets/shoebox.svg" ~/.local/share/icons/hicolor/scalable/apps/shoeb
 
 ## Building the Windows and Mac apps
 
-GitHub builds them (`.github/workflows/build.yml`) on every push to `main`, `dev` or `platforms`, runs the app's
+GitHub builds them (`.github/workflows/build.yml`) on every push to `main` or `dev`, runs the app's
 self-test on each (`Shoebox --selftest report.txt`: thumbnails, video player, window), and keeps the zips under the
 run's **Artifacts**. On Windows it also tests the installer: install, run the installed app's self-test,
 uninstall, check nothing's left. Linux tests `install.sh` the same way. Pushing a tag that matches the version in
