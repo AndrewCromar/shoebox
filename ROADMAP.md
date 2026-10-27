@@ -3,7 +3,7 @@
 Branches: `main` is the last version Andrew said works; new work goes on `dev` and is merged into main when he says.
 
 ## Next
-1. **Ingest** (below), then **Duplicates**. A friend tests the Mac version.
+1. **Duplicates** (below; the matcher is done). Andrew tests Ingest. A friend tests the Mac version.
 
 ## Later
 2. **Ingest** (Andrew, 2026-10-27): bring photos from outside (friends' uploads, a phone dump) into an event.
@@ -25,6 +25,7 @@ Branches: `main` is the last version Andrew said works; new work goes on `dev` a
    - Uninstall keeps the photos (Shoebox never stores them); optionally removes its settings and thumbnails.
 
 ## Done
+- **Ingest** + the matcher (dev, 2026-10-27): i opens it; NEW / HAVE / MAYBE, tick, move in, logged, z undoes.
 - **v1.0.0** (2026-10-27): Windows installer, Mac .dmg, Linux install command, in-app updates. Tested on
   Andrew's Windows laptop and in CI on all three systems.
 - Year > month > event tree, misc and other groups below the years, search, settings (media folder, no default),

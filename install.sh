@@ -35,6 +35,7 @@ rm -rf "$APP"
 mkdir -p "$APP" "$BIN" "$MENU" "$ICONS"
 tar -xzf "$TMP/shoebox.tar.gz" -C "$APP" --strip-components=1
 ln -sf "$APP/Shoebox" "$BIN/shoebox"
+rm -f "$ICONS/shoebox.svg" "$MENU/shoebox.desktop"  # an older install may have left links here
 cp "$APP/_internal/assets/shoebox.svg" "$ICONS/shoebox.svg"
 cat > "$MENU/shoebox.desktop" <<DESKTOP
 [Desktop Entry]

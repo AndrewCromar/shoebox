@@ -559,12 +559,36 @@ class Shoebox(QWidget):
         QShortcut(QKeySequence("/"), self, self.start_search)
         QShortcut(QKeySequence("Ctrl+F"), self, self.start_search)
         QShortcut(QKeySequence("U"), self, self.update_now)
+        QShortcut(QKeySequence("I"), self, self.open_ingest)
+        self.ingest = None
         self.update_found.connect(self.got_update)
         self.release = None
         self.reload()
         self.tree.setFocus()
         if settings().get("check_updates", True) and not updates.is_disabled():
             self.check_updates()
+
+    # ---- ingest (ingest.py)
+    def open_ingest(self):
+        if self.pages.currentWidget() is not self.pages.widget(0):
+            return
+        if self.ingest is None:
+            from .ingest import Ingest
+            self.ingest = Ingest(self)
+            self.ingest.back.connect(self.close_ingest)
+            self.ingest.moved.connect(lambda _b: self.reload())
+            self.pages.addWidget(self.ingest)
+        it = self.tree.currentItem()
+        kind, v = it.data(0, Qt.UserRole) if it else (None, None)
+        self.pages.setCurrentWidget(self.ingest)
+        self.ingest.grid.setFocus()
+        self.show_keys()
+        self.ingest.start(v.path if kind == "folder" and v.name != "loose files" else None)
+
+    def close_ingest(self):
+        self.pages.setCurrentIndex(0)
+        self.tree.setFocus()
+        self.show_keys()
 
     # ---- updates
     def check_updates(self, tell=False):
@@ -892,7 +916,9 @@ class Shoebox(QWidget):
             system.show_in_file_manager(p)
 
     def show_keys(self, *_):
-        if self.pages.currentWidget() is self.viewer:
+        if self.ingest is not None and self.pages.currentWidget() is self.ingest:
+            keys = self.ingest.keys()
+        elif self.pages.currentWidget() is self.viewer:
             video = self.viewer.paths and library.kind(self.viewer.paths[self.viewer.i]) in ("video", "audio")
             keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
             if video:
@@ -906,7 +932,7 @@ class Shoebox(QWidget):
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("/", "search"), ("d", "open in file manager"), ("s", "settings"), ("f5", "reload"), ("f", "full screen"), ("esc q", "quit")]
+                    ("/", "search"), ("i", "ingest"), ("d", "open in file manager"), ("s", "settings"), ("f5", "reload"), ("f", "full screen"), ("esc q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
