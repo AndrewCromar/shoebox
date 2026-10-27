@@ -13,6 +13,7 @@ Problems he noticed. Fixed on `platforms` (2026-10-27), waiting for his retest.
    follows the side you were last on (folders or photos), not which widget has keyboard focus at that moment.
 5. **Multiple photos could be selected with the mouse** (Ctrl/Shift-click) with no use for it. **Fixed**: one at a time.
 
-Works on Windows:
+Works on Windows (confirmed by Andrew, 2026-10-27):
+- The installer (Shoebox-Setup.exe) and the app it installs.
 - Open in its app (o).
 - d from the viewer highlights the photo in Explorer (after fix 1).
