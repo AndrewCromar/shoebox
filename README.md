@@ -1,10 +1,12 @@
-# gallery
+# Shoebox
+
+<img src="assets/shoebox.svg" width="96" alt="Shoebox icon">
 
 A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/media/`.
 
 ```
-./gallery-app                # or "Gallery" in the KDE menu
-./gallery-app /some/folder   # another library
+./shoebox-app                # or "Shoebox" in the KDE menu / KRunner
+./shoebox-app /some/folder   # another library
 ```
 
 - **Left:** the library's own layout: `2026/06/Grand Teton National Park/` shows as 2026 > 06 June > the event
@@ -19,13 +21,22 @@ A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/
   `o` opens the file in its usual app, `d` shows it in the file manager (Dolphin), `f` full screen, F5 reloads,
   `q` quits, `/` or Ctrl+F searches the folder names (Enter keeps the filter, Esc clears it). The outline on a thumbnail only shows while you're in the photos.
 
-Read-only: it never moves, renames or edits anything in the library. Thumbnails are cached in `~/.cache/gallery`
+**Settings (s):** pick the media folder (if it moves; remembered in `~/.config/shoebox/settings.json`) or
+clear the thumbnails.
+
+Read-only: it never moves, renames or edits anything in the library. Thumbnails are cached in `~/.cache/shoebox`
 (delete it any time). HEIC photos work through pillow-heif.
 
 | file | what |
 |---|---|
-| `gallery/library.py` | scans the folders, dates from names |
-| `gallery/thumbs.py` | thumbnail cache, background workers (Pillow, ffmpeg) |
-| `gallery/app.py` | the window: folder tree, grid, viewer (mpv) |
+| `shoebox/library.py` | scans the folders, dates from names |
+| `shoebox/thumbs.py` | thumbnail cache, background workers (Pillow, ffmpeg) |
+| `shoebox/app.py` | the window: folder tree, grid, viewer (mpv) |
 
 Setup: `python3 -m venv .venv && .venv/bin/pip install PySide6 pillow pillow-heif python-mpv` (needs mpv and ffmpeg).
+
+Install the menu entry (KDE menu, KRunner):
+```
+cp assets/shoebox.desktop ~/.local/share/applications/
+ln -s "$PWD/assets/shoebox.svg" ~/.local/share/icons/hicolor/scalable/apps/shoebox.svg
+```

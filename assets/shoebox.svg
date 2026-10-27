@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Shoebox: an open box of photos. Colours from the app (dark, sage green). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2320"/>
+      <stop offset="1" stop-color="#111312"/>
+    </linearGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fb878"/>
+      <stop offset="1" stop-color="#5f8f50"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fc1c9"/>
+      <stop offset="1" stop-color="#e8e6df"/>
+    </linearGradient>
+    <clipPath id="p1"><rect x="62" y="58" width="78" height="62" rx="3"/></clipPath>
+    <clipPath id="p2"><rect x="112" y="48" width="78" height="62" rx="3"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+
+  <!-- the lid, leaning against the back -->
+  <path d="M58 92 L76 40 L214 52 L200 104 Z" fill="#3d5a35"/>
+  <path d="M76 40 L214 52 L211 62 L73 50 Z" fill="#4e7344"/>
+
+  <!-- two photos sticking out -->
+  <g transform="rotate(-8 101 89)">
+    <rect x="56" y="52" width="90" height="80" rx="5" fill="#f4f2ea"/>
+    <g clip-path="url(#p1)">
+      <rect x="62" y="58" width="78" height="62" fill="url(#sky)"/>
+      <path d="M62 120 L84 88 L98 104 L114 80 L140 120 Z" fill="#5d625a"/>
+      <path d="M108 89 L114 80 L120 89 L116 87 L112 90 Z" fill="#f4f2ea"/>
+      <circle cx="126" cy="70" r="6" fill="#e0b84f"/>
+    </g>
+  </g>
+  <g transform="rotate(7 151 79)">
+    <rect x="106" y="42" width="90" height="80" rx="5" fill="#f4f2ea"/>
+    <g clip-path="url(#p2)">
+      <rect x="112" y="48" width="78" height="62" fill="#cfe3a8"/>
+      <path d="M112 110 L112 86 Q130 74 148 86 Q166 98 190 82 L190 110 Z" fill="#7fbf6a"/>
+      <path d="M124 110 L132 92 L140 110 Z M150 110 L160 86 L170 110 Z" fill="#3d5a35"/>
+    </g>
+  </g>
+
+  <!-- the box -->
+  <path d="M40 112 L216 112 L204 214 Q203 222 195 222 L61 222 Q53 222 52 214 Z" fill="url(#box)"/>
+  <path d="M40 112 L216 112 L214 128 L42 128 Z" fill="#a9cf92"/>
+  <rect x="108" y="150" width="40" height="24" rx="4" fill="#3d5a35" opacity="0.55"/>
+</svg>

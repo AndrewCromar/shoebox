@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Shoebox
+GenericName=Photo and video viewer
+Comment=Browse photos, videos and audio by year, month and trip
+Exec=/home/andrew/storage/shoebox/shoebox-app
+Icon=shoebox
+Terminal=false
+Categories=Graphics;Viewer;
+Keywords=photos;videos;pictures;gallery;picasa;media;shoebox;
+StartupWMClass=shoebox

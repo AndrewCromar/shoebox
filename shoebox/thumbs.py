@@ -1,4 +1,4 @@
-"""Thumbnails, cached in ~/.cache/gallery (never next to the photos).
+"""Thumbnails, cached in ~/.cache/shoebox (never next to the photos).
 
 A thumbnail is a JPEG, longest side SIZE, keyed by the file's path, size and modified time, so an edited
 file gets a new one. Videos: a frame 1 s in (or the first frame) and their length, from ffmpeg/ffprobe.
@@ -36,7 +36,7 @@ def give_back():
     """Return freed decode buffers to the system (glibc keeps them otherwise)."""
     if _libc:
         _libc.malloc_trim(0)
-CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "gallery" / "thumbs"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "shoebox" / "thumbs"
 
 
 def key(p: Path) -> str:

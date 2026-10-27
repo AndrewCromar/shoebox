@@ -3,7 +3,9 @@
 Looks like the drew.in.nature studio (same colours and font). Works with the keyboard or the mouse.
 Read-only: it never moves, renames or edits a photo.
 """
+import json
 import locale
+import shutil
 from collections import OrderedDict
 import os
 import subprocess
@@ -15,15 +17,37 @@ from pathlib import Path
 import mpv
 from PIL import Image, ImageOps
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut
+from PySide6.QtGui import QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLineEdit, QListView, QSplitter,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDialog, QPushButton, QHBoxLayout, QLabel, QLineEdit, QListView, QSplitter,
                                QStackedWidget, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
 from . import library, thumbs
 
-ROOT = Path(os.environ.get("GALLERY_ROOT", "~/storage/Dropbox/Kids/Andrew/media")).expanduser()
+DEFAULT_ROOT = "~/storage/Dropbox/Kids/Andrew/media"
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "shoebox" / "settings.json"
+ICON = Path(__file__).resolve().parent.parent / "assets" / "shoebox.svg"
+
+
+def settings() -> dict:
+    try:
+        return json.loads(CONFIG.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(d: dict):
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps(d, indent=1) + "\n")
+
+
+def media_root() -> Path:
+    """The library: SHOEBOX_ROOT, else the folder picked in Settings, else Andrew's Dropbox media folder."""
+    return Path(os.environ.get("SHOEBOX_ROOT") or settings().get("root") or DEFAULT_ROOT).expanduser()
+
+
+ROOT = media_root()
 
 C = {"bg": "#111312", "panel": "#171a18", "cur": "#232722", "sel": "#1b2a1f", "line": "#262a27",
      "fg": "#e8e6df", "mid": "#a3a69d", "dim": "#5d625a", "acc": "#cfe3a8", "keep": "#7fbf6a", "cyan": "#8fc1c9"}
@@ -412,13 +436,13 @@ class Viewer(QWidget):
 
 
 # ---------------------------------------------------------------- window
-class Gallery(QWidget):
+class Shoebox(QWidget):
     thumb_ready = Signal(object, object, object)
 
     def __init__(self, root: Path):
         super().__init__()
         self.root = root
-        self.setWindowTitle("gallery")
+        self.setWindowTitle("Shoebox")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -484,6 +508,8 @@ class Gallery(QWidget):
         QShortcut(QKeySequence("Q"), self, QApplication.quit)
         QApplication.instance().focusChanged.connect(self.focus_moved)
         QShortcut(QKeySequence("F5"), self, self.reload)
+        QShortcut(QKeySequence("S"), self, self.open_settings)
+        QShortcut(QKeySequence("Ctrl+,"), self, self.open_settings)
         QShortcut(QKeySequence("/"), self, self.start_search)
         QShortcut(QKeySequence("Ctrl+F"), self, self.start_search)
         self.reload()
@@ -530,6 +556,20 @@ class Gallery(QWidget):
                     y.child(0).setExpanded(True)
         target = self.find(was) if was else None
         self.tree.setCurrentItem(target or first)
+
+    # ---- settings
+    def open_settings(self):
+        if self.pages.currentWidget() is self.viewer:
+            return
+        Settings(self).exec()
+
+    def set_root(self, root: Path):
+        self.root = root
+        save_settings({**settings(), "root": str(root)})
+        self.search.clear()
+        self.items.set_paths([])
+        self.reload()
+        self.tree.setFocus()
 
     # ---- search
     def start_search(self):
@@ -723,7 +763,7 @@ class Gallery(QWidget):
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("/", "search"), ("d", "open in file manager"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
+                    ("/", "search"), ("d", "open in file manager"), ("s", "settings"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
@@ -734,6 +774,76 @@ class Gallery(QWidget):
     def closeEvent(self, e):
         self.viewer.video.stop()
         super().closeEvent(e)
+
+
+class Settings(QDialog):
+    """The media folder (if it moves), and the thumbnail cache."""
+
+    def __init__(self, win: "Shoebox"):
+        super().__init__(win)
+        self.win = win
+        self.setWindowTitle("Shoebox settings")
+        self.setMinimumWidth(640)
+        self.setStyleSheet(f"QDialog {{ background: {C['panel']}; }} QPushButton {{ background: {C['cur']}; "
+                           f"color: {C['fg']}; border: 1px solid {C['line']}; padding: 7px 14px; }} "
+                           f"QPushButton:focus, QPushButton:hover {{ border-color: {C['acc']}; }}")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(24, 20, 24, 20)
+        v.setSpacing(10)
+        v.addWidget(label(span("MEDIA FOLDER", "dim")))
+        self.path = label()
+        self.path.setWordWrap(True)
+        v.addWidget(self.path)
+        row = QHBoxLayout()
+        change = QPushButton("Choose another folder…")
+        change.clicked.connect(self.change)
+        row.addWidget(change)
+        reset = QPushButton("Back to the default")
+        reset.clicked.connect(lambda: self.pick(Path(DEFAULT_ROOT).expanduser()))
+        row.addWidget(reset)
+        row.addStretch(1)
+        v.addLayout(row)
+        v.addSpacing(14)
+        v.addWidget(label(span("THUMBNAILS", "dim")))
+        self.cache = label()
+        self.cache.setWordWrap(True)
+        v.addWidget(self.cache)
+        row2 = QHBoxLayout()
+        clear = QPushButton("Clear thumbnails")
+        clear.clicked.connect(self.clear)
+        row2.addWidget(clear)
+        row2.addStretch(1)
+        v.addLayout(row2)
+        v.addSpacing(14)
+        close = QPushButton("Done")
+        close.clicked.connect(self.accept)
+        v.addWidget(close, 0, Qt.AlignRight)
+        self.show_state()
+        change.setFocus()
+
+    def show_state(self):
+        r = self.win.root
+        self.path.setText(span(str(r), "fg" if r.is_dir() else "bad")
+                          + ("" if r.is_dir() else span("   (not found)", "dim")))
+        size = sum(f.stat().st_size for f in thumbs.CACHE.rglob("*") if f.is_file()) if thumbs.CACHE.exists() else 0
+        self.cache.setText(span(f"{size / 1e6:.0f} MB in {thumbs.CACHE}", "mid")
+                           + span("   (made again when needed; your photos aren't touched)", "dim"))
+
+    def change(self):
+        d = QFileDialog.getExistingDirectory(self, "Choose your media folder", str(self.win.root))
+        if d:
+            self.pick(Path(d))
+
+    def pick(self, root: Path):
+        self.win.set_root(root)
+        self.show_state()
+
+    def clear(self):
+        shutil.rmtree(thumbs.CACHE, ignore_errors=True)
+        self.win.items.jpg.clear()
+        self.win.items.pix.clear()
+        self.win.folder_changed(self.win.tree.currentItem())
+        self.show_state()
 
 
 class Search(QLineEdit):
@@ -774,12 +884,13 @@ class Tree(QTreeWidget):
 
 
 def main():
-    QApplication.setApplicationName("gallery")
-    QApplication.setDesktopFileName("gallery")
+    QApplication.setApplicationName("Shoebox")
+    QApplication.setDesktopFileName("shoebox")
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
+    app.setWindowIcon(QIcon(str(ICON)))
     root = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else ROOT
-    w = Gallery(root)
+    w = Shoebox(root)
     w.resize(1600, 980)
     w.show()
     code = app.exec()
