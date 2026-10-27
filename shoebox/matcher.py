@@ -4,8 +4,8 @@ Each file gets a fingerprint from its thumbnail (so it's quick and works for HEI
 - a difference hash: the 64 brighter/darker steps of a tiny 9x8 grey version. A resized, re-saved, renamed or
   slightly re-encoded copy keeps almost the same 64 bits; a different photo differs in many.
 - when it was taken (EXIF or the video's creation time), and a video's length.
-Two files are the same photo when their hashes differ in only a few bits and, if both know when they were taken,
-those times agree (that keeps a burst of near-identical shots apart). Fingerprints are cached next to the
+Two files are the same photo when their pictures match: hashes that differ in only a few bits. Names and
+metadata don't decide it; a date that disagrees only turns a close (not identical) match into a "maybe". Fingerprints are cached next to the
 thumbnails.
 """
 import json
@@ -93,11 +93,11 @@ def distance(a: dict, b: dict) -> int | None:
         return None  # a different length is a different clip (a trimmed copy counts as new)
     # also turned 90/180/270 degrees: a copy that lost its "rotate me" tag has its pixels sideways
     bits = min(bin(a["h"] ^ h).count("1") for h in [b["h"], *b.get("r", [])])
+    # The picture decides, not names or metadata (Andrew, 2026-10-27). Only when the dates disagree (beyond a
+    # time zone) and the pictures are merely close, not identical, is it a "maybe" for you to look at.
     gap = abs(a["t"] - b["t"]) if a.get("t") and b.get("t") else 0
-    if gap > 2 and min(gap % 3600, 3600 - gap % 3600) > 2:
-        # the dates disagree (an exact hours' gap would just be a time zone): normally a different shot, but
-        # pixel-identical means the same photo with changed metadata (an edit app, a wrong camera clock): maybe
-        return SAME + 1 if bits <= 2 else None
+    if bits > 2 and gap > 2 and min(gap % 3600, 3600 - gap % 3600) > 2:
+        return max(bits, SAME + 1)
     return bits
 
 

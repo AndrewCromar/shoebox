@@ -60,12 +60,12 @@ python3 -m venv .venv && .venv/bin/pip install PySide6 pillow pillow-heif python
   5 s, `,` `.` 1 s). Shows when it was taken (EXIF or the video's creation time).
 - **Keys** (the bar at the bottom changes with where you are: folders, photos or viewing): ↑↓ folders, → or Enter to the
   thumbnails, Esc back (Esc in the folders quits, so Esc Esc Esc gets you all the way out). `+` `−` or Ctrl+wheel change the thumbnail size.
-  `o` opens the file in its usual app, `d` shows it in the file manager (Dolphin, Explorer, Finder), `f` full screen, F5 reloads,
+  `o` opens the file in its usual app, `d` shows it in the file manager (Dolphin, Explorer, Finder), `f` full screen, `r` (or F5) reloads,
   `q` quits, `/` or Ctrl+F searches the folder names (Enter keeps the filter, Esc clears it). The outline on a thumbnail only shows while you're in the photos.
 
 **Ingest (i):** bring photos from outside (a friend's upload, a phone dump) into an event without doubles. Pick
 the folder; the event is the one you're on (or `e` to pick another). Each file is marked **NEW**, **HAVE** (already
-in the event, even at another size or renamed) or **MAYBE?**; new ones start ticked. Space ticks/unticks, Enter
+in the event: the picture decides, so renamed, resized, re-saved or re-dated copies count) or **MAYBE?**; new ones start ticked. Space ticks/unticks, Enter
 moves the ticked ones in, `z` undoes the last move. Nothing is deleted; every move is logged in
 `ingest-log.jsonl` in the settings folder.
 

@@ -554,6 +554,7 @@ class Shoebox(QWidget):
         QShortcut(QKeySequence("Q"), self, QApplication.quit)
         QApplication.instance().focusChanged.connect(self.focus_moved)
         QShortcut(QKeySequence("F5"), self, self.reload)
+        QShortcut(QKeySequence("R"), self, self.reload)
         QShortcut(QKeySequence("S"), self, self.open_settings)
         QShortcut(QKeySequence("Ctrl+,"), self, self.open_settings)
         QShortcut(QKeySequence("/"), self, self.start_search)
@@ -932,7 +933,7 @@ class Shoebox(QWidget):
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("/", "search"), ("i", "ingest"), ("d", "open in file manager"), ("s", "settings"), ("f5", "reload"), ("f", "full screen"), ("esc q", "quit")]
+                    ("/", "search"), ("i", "ingest"), ("d", "open in file manager"), ("s", "settings"), ("r", "reload"), ("f", "full screen"), ("esc q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
