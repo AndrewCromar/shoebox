@@ -1,0 +1,118 @@
+"""Thumbnails, cached in ~/.cache/gallery (never next to the photos).
+
+A thumbnail is a JPEG, longest side SIZE, keyed by the file's path, size and modified time, so an edited
+file gets a new one. Videos: a frame 1 s in (or the first frame) and their length, from ffmpeg/ffprobe.
+Worker threads make them in the order asked; asking for a new folder drops what's left of the old one.
+"""
+import hashlib
+import json
+import os
+import queue
+import subprocess
+import threading
+from pathlib import Path
+
+from PIL import Image, ImageOps
+
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:  # HEIC photos just show no thumbnail
+    pass
+
+from .library import kind
+
+SIZE = 360
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "gallery" / "thumbs"
+
+
+def key(p: Path) -> str:
+    st = p.stat()
+    return hashlib.sha1(f"{p}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()
+
+
+def cached(p: Path) -> tuple[Path, dict] | None:
+    try:
+        k = key(p)
+    except OSError:
+        return None
+    jpg = CACHE / k[:2] / f"{k}.jpg"
+    if jpg.exists():
+        meta = jpg.with_suffix(".json")
+        return jpg, (json.loads(meta.read_text()) if meta.exists() else {})
+    return None
+
+
+def probe(p: Path) -> dict:
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:format_tags=creation_time",
+                        "-of", "json", str(p)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    try:
+        f = json.loads(r.stdout)["format"]
+        return {"duration": float(f.get("duration", 0)), "taken": f.get("tags", {}).get("creation_time", "")}
+    except (ValueError, KeyError):
+        return {}
+
+
+def make(p: Path) -> tuple[Path, dict]:
+    k = key(p)
+    jpg = CACHE / k[:2] / f"{k}.jpg"
+    jpg.parent.mkdir(parents=True, exist_ok=True)
+    tmp = jpg.with_name(f".{k}.{threading.get_ident()}.jpg")
+    meta = {}
+    if kind(p) == "video":
+        meta = probe(p)
+        for at in ("1", "0"):
+            r = subprocess.run(["nice", "ffmpeg", "-v", "error", "-y", "-ss", at, "-i", str(p), "-frames:v", "1",
+                                "-vf", f"scale='if(gt(iw,ih),{SIZE},-2)':'if(gt(iw,ih),-2,{SIZE})'", str(tmp)],
+                               capture_output=True, stdin=subprocess.DEVNULL)
+            if r.returncode == 0 and tmp.exists() and tmp.stat().st_size:
+                break
+        else:
+            raise RuntimeError(f"no frame from {p.name}")
+    else:
+        with Image.open(p) as im:
+            im.draft("RGB", (SIZE * 2, SIZE * 2))  # fast JPEG decode at a smaller size
+            taken = im.getexif().get_ifd(0x8769).get(36867) or im.getexif().get(306) or ""  # DateTimeOriginal
+            im = ImageOps.exif_transpose(im)
+            meta = {"w": im.width, "h": im.height, "taken": str(taken).strip()}
+            im = im.convert("RGB")
+            im.thumbnail((SIZE, SIZE), Image.LANCZOS)
+            im.save(tmp, "JPEG", quality=85)
+    tmp.replace(jpg)
+    jpg.with_suffix(".json").write_text(json.dumps(meta))
+    return jpg, meta
+
+
+class Maker:
+    """Background thumbnail makers. ask() replaces the queue; done(path, jpg, meta) is called from a worker
+    thread (connect it to a Qt signal)."""
+
+    def __init__(self, done, workers: int = max(2, (os.cpu_count() or 4) // 2)):
+        self.done = done
+        self.q: queue.Queue = queue.Queue()
+        self.gen = 0
+        self.lock = threading.Lock()
+        for _ in range(workers):
+            threading.Thread(target=self.work, daemon=True).start()
+
+    def ask(self, paths: list[Path]):
+        with self.lock:
+            self.gen += 1
+            while not self.q.empty():
+                try:
+                    self.q.get_nowait()
+                except queue.Empty:
+                    break
+            for p in paths:
+                self.q.put((self.gen, p))
+
+    def work(self):
+        while True:
+            gen, p = self.q.get()
+            if gen != self.gen:
+                continue
+            try:
+                jpg, meta = cached(p) or make(p)
+            except Exception:  # unreadable file: it keeps its placeholder
+                jpg, meta = None, {}
+            self.done(p, jpg, meta)
