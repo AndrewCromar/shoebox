@@ -1,19 +1,17 @@
-"""Thumbnails, cached in ~/.cache/shoebox (never next to the photos).
+"""Thumbnails, cached in the user's cache folder (system.cache_dir), never next to the photos.
 
 A thumbnail is a JPEG, longest side SIZE, keyed by the file's path, size and modified time, so an edited
 file gets a new one. Videos: a frame 1 s in (or the first frame) and their length, from ffmpeg/ffprobe.
 Worker threads make them in the order asked; asking for a new folder drops what's left of the old one.
 """
-import ctypes
 import hashlib
 import json
 import os
 import queue
-import subprocess
 import threading
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 try:
     import pillow_heif
@@ -21,22 +19,15 @@ try:
 except ImportError:  # HEIC photos just show no thumbnail
     pass
 
+from . import system
 from .library import kind
 
 SIZE = 360
 BIG = 20_000_000  # pixels; a 48 MP HEIC takes ~190 MB to decode, so only one of those at a time
 big_lock = threading.Lock()
-try:
-    _libc = ctypes.CDLL("libc.so.6")
-except OSError:
-    _libc = None
-
-
-def give_back():
-    """Return freed decode buffers to the system (glibc keeps them otherwise)."""
-    if _libc:
-        _libc.malloc_trim(0)
-CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "shoebox" / "thumbs"
+give_back = system.give_back
+CACHE = system.cache_dir() / "thumbs"
+FFMPEG, FFPROBE = system.tool("ffmpeg"), system.tool("ffprobe")
 
 
 def key(p: Path) -> str:
@@ -57,13 +48,31 @@ def cached(p: Path) -> tuple[Path, dict] | None:
 
 
 def probe(p: Path) -> dict:
-    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:format_tags=creation_time",
-                        "-of", "json", str(p)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if not FFPROBE:
+        return {}
+    r = system.run([FFPROBE, "-v", "error", "-show_entries", "format=duration:format_tags=creation_time",
+                    "-of", "json", str(p)], text=True)
     try:
         f = json.loads(r.stdout)["format"]
         return {"duration": float(f.get("duration", 0)), "taken": f.get("tags", {}).get("creation_time", "")}
     except (ValueError, KeyError):
         return {}
+
+
+def note_tile() -> Image.Image:
+    """An audio file without cover art: a ♪ drawn as shapes (no font needed, same on every system)."""
+    k = 4  # draw big, then shrink: smooth edges
+    n = SIZE * k
+    tile = Image.new("RGB", (n, n), "#1d2320")
+    d = ImageDraw.Draw(tile)
+    green = "#cfe3a8"
+    head_w, head_h = n * 0.16, n * 0.12
+    x0, y0 = n * 0.36, n * 0.58
+    d.ellipse((x0, y0, x0 + head_w, y0 + head_h), fill=green)          # the note's head
+    sx = x0 + head_w - n * 0.025
+    d.rectangle((sx, n * 0.28, sx + n * 0.025, y0 + head_h * 0.5), fill=green)  # the stem
+    d.polygon([(sx, n * 0.28), (sx + n * 0.15, n * 0.36), (sx + n * 0.15, n * 0.42), (sx, n * 0.35)], fill=green)
+    return tile.resize((SIZE, SIZE), Image.LANCZOS)
 
 
 def make(p: Path) -> tuple[Path, dict]:
@@ -75,21 +84,18 @@ def make(p: Path) -> tuple[Path, dict]:
     if kind(p) == "audio":
         meta = probe(p)
         # its cover art if it has one, else a plain tile with a note
-        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(p), "-an", "-frames:v", "1",
-                            "-vf", f"scale={SIZE}:-2", str(tmp)], capture_output=True, stdin=subprocess.DEVNULL)
-        if r.returncode != 0 or not tmp.exists() or not tmp.stat().st_size:
-            tile = Image.new("RGB", (SIZE, SIZE), "#1d2320")
-            d = ImageDraw.Draw(tile)
-            found = subprocess.run(["fc-match", "-f", "%{file}", "sans:charset=266a"], capture_output=True, text=True)
-            font = ImageFont.truetype(found.stdout or "DejaVuSans.ttf", SIZE // 3)  # a font that has ♪
-            d.text((SIZE / 2, SIZE / 2), "♪", font=font, fill="#cfe3a8", anchor="mm")
-            tile.save(tmp, "JPEG", quality=90)
+        if FFMPEG:
+            system.run([FFMPEG, "-v", "error", "-y", "-i", str(p), "-an", "-frames:v", "1",
+                        "-vf", f"scale={SIZE}:-2", str(tmp)])
+        if not tmp.exists() or not tmp.stat().st_size:
+            note_tile().save(tmp, "JPEG", quality=90)
     elif kind(p) == "video":
         meta = probe(p)
+        if not FFMPEG:
+            raise RuntimeError("ffmpeg isn't installed")
         for at in ("1", "0"):
-            r = subprocess.run(["nice", "ffmpeg", "-v", "error", "-y", "-ss", at, "-i", str(p), "-frames:v", "1",
-                                "-vf", f"scale='if(gt(iw,ih),{SIZE},-2)':'if(gt(iw,ih),-2,{SIZE})'", str(tmp)],
-                               capture_output=True, stdin=subprocess.DEVNULL)
+            r = system.run([FFMPEG, "-v", "error", "-y", "-ss", at, "-i", str(p), "-frames:v", "1",
+                            "-vf", f"scale='if(gt(iw,ih),{SIZE},-2)':'if(gt(iw,ih),-2,{SIZE})'", str(tmp)])
             if r.returncode == 0 and tmp.exists() and tmp.stat().st_size:
                 break
         else:

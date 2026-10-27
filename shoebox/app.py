@@ -8,13 +8,18 @@ import locale
 import shutil
 from collections import OrderedDict
 import os
-import subprocess
 import sys
 import threading
 from datetime import datetime
 from pathlib import Path
 
-import mpv
+from . import system
+
+system.prepare_mpv()
+try:
+    import mpv
+except (ImportError, OSError):  # no libmpv: photos still work, videos open in their own app
+    mpv = None
 from PIL import Image, ImageOps
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut
@@ -25,7 +30,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDi
 
 from . import library, thumbs
 
-CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "shoebox" / "settings.json"
+CONFIG = system.config_dir() / "settings.json"
 ICON = Path(__file__).resolve().parent.parent / "assets" / "shoebox.svg"
 
 
@@ -101,11 +106,6 @@ def taken(p: Path, meta: dict) -> str:
         except ValueError:
             pass
     return datetime.fromtimestamp(p.stat().st_mtime).strftime("%b %d %Y, %H:%M") + " (file date)"
-
-
-def launch(*cmd):
-    subprocess.Popen(list(map(str, cmd)), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 # ---------------------------------------------------------------- thumbnail grid
@@ -256,11 +256,14 @@ class Mpv(QOpenGLWidget):
         super().__init__()
         locale.setlocale(locale.LC_NUMERIC, "C")
         self.m = mpv.MPV(vo="libmpv", keep_open="yes", hwdec="auto-safe", osd_level=1,
-                         input_default_bindings=False, input_vo_keyboard=False)
+                         input_default_bindings=False, input_vo_keyboard=False) if mpv else None
         self.ctx = None
         self.frame.connect(self.update, Qt.QueuedConnection)
 
     def initializeGL(self):
+        if not self.m:
+            return
+
         def gpa(_ctx, name):
             return int(QOpenGLContext.currentContext().getProcAddress(name.decode()) or 0)
         self._gpa = mpv.MpvGlGetProcAddressFn(gpa)
@@ -274,20 +277,24 @@ class Mpv(QOpenGLWidget):
                                                       "fbo": self.defaultFramebufferObject()})
 
     def play(self, p: Path):
-        self.m.command("loadfile", str(p), "replace")
-        self.m.pause = False
+        if self.m:
+            self.m.command("loadfile", str(p), "replace")
+            self.m.pause = False
 
     def stop(self):
-        try:
-            self.m.command("stop")
-        except SystemError:
-            pass
+        self.key("stop")
 
     def key(self, cmd, *args):
+        if not self.m:
+            return
         try:
             self.m.command(cmd, *args)
         except SystemError:
             pass
+
+    def toggle(self):
+        if self.m:
+            self.m.pause = not self.m.pause
 
 
 class Viewer(QWidget):
@@ -331,7 +338,14 @@ class Viewer(QWidget):
     def show_current(self):
         p = self.paths[self.i]
         self.update_info()
-        if library.kind(p) == "video":
+        if library.kind(p) in ("video", "audio") and not self.video.m:
+            self.image = None
+            self.stack.setCurrentWidget(self.pic)
+            self.pic.setStyleSheet("background:#000; font-size:16pt;")
+            self.pic.setText(span(p.name, "fg", True) + "<br><br>"
+                             + span("The video player (libmpv) isn't installed, so this can't play here.", "mid")
+                             + "<br>" + span("Press o to open it in its usual app.", "dim"))
+        elif library.kind(p) == "video":
             self.image = None
             self.stack.setCurrentWidget(self.video)
             self.video.play(p)
@@ -432,7 +446,7 @@ class Viewer(QWidget):
             self.i = len(self.paths) - 1
             self.show_current()
         elif k == Qt.Key_Space and video:
-            self.video.m.pause = not self.video.m.pause
+            self.video.toggle()
         elif video and k in (Qt.Key_Right, Qt.Key_Left):
             self.video.key("seek", "5" if k == Qt.Key_Right else "-5")
         elif video and t in (",", "."):
@@ -814,22 +828,20 @@ class Shoebox(QWidget):
         p = self.current_path()
         if p:
             self.viewer.video.stop()
-            launch("xdg-open", p)
+            system.open_path(p)
 
     def open_folder(self):
-        """d: the default file manager (Dolphin), at the folder, or with the photo selected."""
+        """d: the file manager (Dolphin, Explorer, Finder), at the folder, or with the photo selected."""
         in_folders = self.pages.currentWidget() is not self.viewer and not self.grid.hasFocus()
         if in_folders:
             it = self.tree.currentItem()
             kind, v = it.data(0, Qt.UserRole) if it else (None, None)
             if kind == "folder" or self.root:
-                launch("xdg-open", v.path if kind == "folder" else self.root)
+                system.open_path(v.path if kind == "folder" else self.root)
             return
         p = self.current_path()
-        if p:  # the freedesktop "show this file" call: opens the default file manager with it selected
-            launch("dbus-send", "--session", "--dest=org.freedesktop.FileManager1", "--type=method_call",
-                   "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems",
-                   f"array:string:{p.as_uri()}", "string:")
+        if p:
+            system.show_in_file_manager(p)
 
     def show_keys(self, *_):
         if self.pages.currentWidget() is self.viewer:
@@ -969,6 +981,11 @@ class Tree(QTreeWidget):
 
 
 def main():
+    if "--selftest" in sys.argv:  # used by the Windows/macOS builds; see selftest.py
+        from . import selftest
+        i = sys.argv.index("--selftest")
+        out = Path(sys.argv[i + 1]) if len(sys.argv) > i + 1 else Path("shoebox-selftest.txt")
+        os._exit(selftest.run(out))
     QApplication.setApplicationName("Shoebox")
     QApplication.setDesktopFileName("shoebox")
     app = QApplication(sys.argv)
