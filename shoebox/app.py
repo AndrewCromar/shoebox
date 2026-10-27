@@ -16,7 +16,7 @@ from pathlib import Path
 
 import mpv
 from PIL import Image, ImageOps
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDialog, QPushButton, QHBoxLayout, QLabel, QLineEdit, QListView, QSplitter,
@@ -318,9 +318,14 @@ class Viewer(QWidget):
         self.image: QImage | None = None
         self.cache: dict[Path, QImage] = {}
         self.loaded.connect(self.got)
+        self.jpgs: dict[Path, Path] = {}
+        self.cv = threading.Condition()
+        self.queue: list[Path] = []
+        self.size_px = QSize(1600, 1000)
+        threading.Thread(target=self.loader, daemon=True).start()
 
-    def show_at(self, paths: list[Path], i: int, meta: dict):
-        self.paths, self.i, self.meta = paths, i, meta
+    def show_at(self, paths: list[Path], i: int, meta: dict, jpgs: dict):
+        self.paths, self.i, self.meta, self.jpgs = paths, i, meta, jpgs
         self.show_current()
 
     def show_current(self):
@@ -343,17 +348,29 @@ class Viewer(QWidget):
             self.stack.setCurrentWidget(self.pic)
             if p in self.cache:
                 self.got(p, self.cache[p])
+            elif self.jpgs.get(p):  # the thumbnail at once, sharp version when it's decoded
+                self.image = QImage(str(self.jpgs[p]))
+                self.fit()
             else:
+                self.image = None
                 self.pic.setText(span("loading…", "dim"))
-                self.load(p)
-            for k in (self.i + 1, self.i - 1):  # the next one is usually already there
-                if 0 <= k < len(self.paths) and library.kind(self.paths[k]) == "image" and self.paths[k] not in self.cache:
-                    self.load(self.paths[k])
+        # only this one, then its neighbours: pictures flipped past quickly are never decoded
+        near = [self.paths[k] for k in (self.i, self.i + 1, self.i - 1) if 0 <= k < len(self.paths)]
+        self.want([x for x in near if library.kind(x) == "image" and x not in self.cache])
 
-    def load(self, p: Path):
-        size = self.size() * self.devicePixelRatio()
+    def want(self, paths: list[Path]):
+        with self.cv:
+            self.queue = paths
+            self.size_px = self.size() * self.devicePixelRatio()
+            self.cv.notify()
 
-        def work():
+    def loader(self):
+        """One decoder thread; each new picture replaces what it was going to load next."""
+        while True:
+            with self.cv:
+                while not self.queue:
+                    self.cv.wait()
+                p, size = self.queue.pop(0), self.size_px
             try:
                 with Image.open(p) as im:
                     im.draft("RGB", (size.width(), size.height()))
@@ -364,7 +381,6 @@ class Viewer(QWidget):
                 q = f"can't open {p.name}: {ex}"
             thumbs.give_back()
             self.loaded.emit(p, q)
-        threading.Thread(target=work, daemon=True).start()
 
     def got(self, p, img):
         if isinstance(img, QImage):
@@ -499,6 +515,11 @@ class Shoebox(QWidget):
         outer.addWidget(self.keys)
 
         self.thumb_ready.connect(self.items.got)
+        self.reorder = QTimer(self)  # after a scroll: make what's on screen first
+        self.reorder.setSingleShot(True)
+        self.reorder.setInterval(80)
+        self.reorder.timeout.connect(self.ask_thumbs)
+        self.grid.verticalScrollBar().valueChanged.connect(lambda *_: self.reorder.start())
         self.maker = thumbs.Maker(lambda p, jpg, meta: self.thumb_ready.emit(p, jpg, meta))
         QShortcut(QKeySequence("F"), self, self.toggle_full)
         QShortcut(QKeySequence("F11"), self, self.toggle_full)
@@ -719,20 +740,37 @@ class Shoebox(QWidget):
         self.head.setText(span(title, "fg", True) + span(f"   {when}" if when else "", "mid")
                           + span(f"   {len(files) - n_vid - n_aud} photos · {n_vid} videos"
                                  + (f" · {n_aud} audio" if n_aud else ""), "dim"))
-        need = []
         for p in files:
-            if p in self.items.jpg:
-                continue
-            hit = thumbs.cached(p)
-            if hit:
-                self.items.got(p, *hit)
-            else:
-                need.append(p)
-        self.maker.ask(need)
+            if p not in self.items.jpg:
+                hit = thumbs.cached(p)
+                if hit:
+                    self.items.got(p, *hit)
+        self.ask_thumbs()
         if files:
             self.grid.setCurrentIndex(self.items.index(0))
             self.grid.scrollToTop()
         self.show_keys()
+
+    def ask_thumbs(self):
+        """Thumbnails still to make, the ones on screen first, then below, then above. Ones scrolled past
+        quickly drop out of the queue instead of holding up the rest."""
+        paths = self.items.paths
+        missing = [i for i, p in enumerate(paths) if p not in self.items.jpg]
+        if not missing:
+            self.maker.ask([])
+            return
+        vp = self.grid.viewport()
+        top = self.grid.indexAt(QPoint(4, 4))
+        bottom = self.grid.indexAt(QPoint(vp.width() - 4, vp.height() - 4))
+        r0 = top.row() if top.isValid() else 0
+        r1 = bottom.row() if bottom.isValid() else min(len(paths) - 1, r0 + 60)
+        span_ = r1 - r0 + 1
+        on = [i for i in missing if r0 <= i <= r1]
+        below = [i for i in missing if r1 < i <= r1 + span_ * 2]
+        above = [i for i in missing if r0 - span_ <= i < r0]
+        first = set(on + below + above)
+        rest = [i for i in missing if i not in first]
+        self.maker.ask([paths[i] for i in on + below + above + rest])
 
     def grid_focus(self):
         if self.items.paths:
@@ -745,10 +783,11 @@ class Shoebox(QWidget):
     def open_viewer(self, row: int):
         self.pages.setCurrentWidget(self.viewer)
         self.viewer.setFocus()
-        self.viewer.show_at(self.items.paths, row, self.items.meta)
+        self.viewer.show_at(self.items.paths, row, self.items.meta, self.items.jpg)
         self.show_keys()
 
     def close_viewer(self):
+        self.viewer.want([])
         self.grid.setCurrentIndex(self.items.index(self.viewer.i))
         self.pages.setCurrentIndex(0)
         if self.isFullScreen() and not self.was_full:
