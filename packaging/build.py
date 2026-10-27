@@ -30,6 +30,8 @@ def icon() -> Path:
     out = HERE / "build" / "shoebox.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(str(out))
+    from PIL import Image  # the installer's icon (Inno Setup wants .ico)
+    Image.open(out).save(HERE / "build" / "shoebox.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     return out
 
 

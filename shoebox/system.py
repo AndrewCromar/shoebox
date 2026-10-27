@@ -83,6 +83,12 @@ def open_path(p: Path):
         _detached(["xdg-open", p])
 
 
+def open_path_url(url: str):
+    """A web page in the default browser."""
+    import webbrowser
+    webbrowser.open(url)
+
+
 def show_in_file_manager(p: Path):
     """The file manager with this file selected (Dolphin, Explorer, Finder)."""
     if WINDOWS:  # one command line, built by hand: Explorer doesn't understand "/select,C:\a b.jpg" in quotes

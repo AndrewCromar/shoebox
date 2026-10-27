@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDi
                                QStackedWidget, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
-from . import library, thumbs
+from . import __version__, library, thumbs, updates
 
 CONFIG = system.config_dir() / "settings.json"
 ICON = Path(__file__).resolve().parent.parent / "assets" / "shoebox.svg"
@@ -468,6 +468,7 @@ class Viewer(QWidget):
 # ---------------------------------------------------------------- window
 class Shoebox(QWidget):
     thumb_ready = Signal(object, object, object)
+    update_found = Signal(object, bool)  # (release or None, tell even if none)
 
     def __init__(self, root: Path):
         super().__init__()
@@ -504,6 +505,11 @@ class Shoebox(QWidget):
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.setSpacing(0)
+        self.update_bar = label()  # "Shoebox 1.1 is available" (updates.py); hidden until there is one
+        self.update_bar.setContentsMargins(18, 10, 18, 10)
+        self.update_bar.setStyleSheet(f"background:{C['sel']}; color:{C['acc']};")
+        self.update_bar.hide()
+        rv.addWidget(self.update_bar)
         self.head = label()
         self.head.setContentsMargins(18, 14, 18, 10)
         rv.addWidget(self.head)
@@ -552,8 +558,44 @@ class Shoebox(QWidget):
         QShortcut(QKeySequence("Ctrl+,"), self, self.open_settings)
         QShortcut(QKeySequence("/"), self, self.start_search)
         QShortcut(QKeySequence("Ctrl+F"), self, self.start_search)
+        QShortcut(QKeySequence("U"), self, self.update_now)
+        self.update_found.connect(self.got_update)
+        self.release = None
         self.reload()
         self.tree.setFocus()
+        if settings().get("check_updates", True) and not updates.is_disabled():
+            self.check_updates()
+
+    # ---- updates
+    def check_updates(self, tell=False):
+        """In the background; tell: say so even when there's nothing new (the Settings button)."""
+        threading.Thread(target=lambda: self.update_found.emit(updates.check(), tell), daemon=True).start()
+
+    def got_update(self, rel, tell):
+        self.release = rel
+        if rel:
+            how = "u installs it" if updates.can_self_update(rel) else "u opens the download page"
+            self.update_bar.setText(span(f"Shoebox {rel['version']} is available", "acc", True)
+                                    + span(f"   (you have {__version__}):  {how}", "mid"))
+            self.update_bar.show()
+        elif tell:
+            self.update_bar.setText(span(f"Shoebox {__version__} is the newest version.", "mid"))
+            self.update_bar.show()
+            QTimer.singleShot(5000, self.update_bar.hide)
+
+    def update_now(self):
+        if not self.release:
+            return
+        if updates.can_self_update(self.release):
+            self.update_bar.setText(span("Downloading the update…", "acc"))
+            QApplication.processEvents()
+            try:
+                if updates.install(self.release):
+                    QApplication.quit()  # the installer replaces Shoebox and opens it again
+            except Exception as ex:
+                self.update_bar.setText(span(f"The update didn't download: {ex}", "bad"))
+        else:
+            updates.install(self.release)
 
     # ---- tree
     def reload(self):
@@ -916,13 +958,31 @@ class Settings(QDialog):
         row2.addStretch(1)
         v.addLayout(row2)
         v.addSpacing(14)
+        v.addWidget(label(span("UPDATES", "dim")))
+        v.addWidget(label(span(f"Shoebox {__version__}", "mid")))
+        row3 = QHBoxLayout()
+        self.auto = QPushButton()
+        self.auto.clicked.connect(self.toggle_auto)
+        row3.addWidget(self.auto)
+        now = QPushButton("Check now")
+        now.clicked.connect(lambda: self.win.check_updates(tell=True))
+        row3.addWidget(now)
+        row3.addStretch(1)
+        v.addLayout(row3)
+        v.addSpacing(14)
         close = QPushButton("Done")
         close.clicked.connect(self.accept)
         v.addWidget(close, 0, Qt.AlignRight)
         self.show_state()
         change.setFocus()
 
+    def toggle_auto(self):
+        save_settings({**settings(), "check_updates": not settings().get("check_updates", True)})
+        self.show_state()
+
     def show_state(self):
+        self.auto.setText("Check for updates when Shoebox starts: " + ("on" if settings().get("check_updates", True)
+                                                                        else "off"))
         r = self.win.root
         if not r:
             self.path.setText(span("none yet: choose the folder with your photos and videos", "mid"))

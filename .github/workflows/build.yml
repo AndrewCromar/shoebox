@@ -1,5 +1,5 @@
-# Builds Shoebox for Windows and macOS, runs its self-test on each, and uploads the apps.
-# A tag like v1.0 also makes a GitHub release with the downloads attached.
+# Builds Shoebox for Windows, macOS and Linux, tests each build (and the Windows installer + uninstaller),
+# and keeps the downloads as artifacts. A tag like v1.0.0 (matching shoebox/__init__.py) makes a release.
 name: build
 
 on:
@@ -30,8 +30,7 @@ jobs:
           gh release download --repo shinchiro/mpv-winbuild-cmake --pattern "mpv-dev-x86_64-2*.7z" --output mpv-dev.7z
           7z x mpv-dev.7z -ompv-dev
           Copy-Item mpv-dev/libmpv-2.dll packaging/bin/
-          Get-ChildItem packaging/bin
-      - name: Build
+      - name: Build the app
         run: python packaging/build.py
       - name: Self-test the built app
         shell: pwsh
@@ -39,13 +38,45 @@ jobs:
           $p = Start-Process dist/Shoebox/Shoebox.exe -ArgumentList "--selftest", "$PWD/selftest.txt" -Wait -PassThru
           Get-Content selftest.txt
           exit $p.ExitCode
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path shoebox/__init__.py -Pattern '"(.+)"').Matches[0].Groups[1].Value
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y; }
+          & $iscc "/DVersion=$v" packaging\shoebox.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Test install, run, uninstall
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/Shoebox-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($p.ExitCode) { throw "installer failed: $($p.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\Shoebox"
+          if (-not (Test-Path "$app\Shoebox.exe")) { throw "not installed in $app" }
+          $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "Shoebox.lnk"
+          if (-not $lnk) { throw "no Start menu shortcut" }
+          $reg = Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall | Get-ItemProperty | Where-Object DisplayName -eq "Shoebox"
+          if (-not $reg) { throw "not in Add or remove programs" }
+          "installed: $app, shortcut $($lnk.FullName), uninstall entry $($reg.DisplayVersion)"
+          $t = Start-Process "$app\Shoebox.exe" -ArgumentList "--selftest", "$PWD/installed-selftest.txt" -Wait -PassThru
+          Get-Content installed-selftest.txt
+          if ($t.ExitCode) { throw "installed app failed its self-test" }
+          $u = Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          Start-Sleep 5
+          if (Test-Path "$app\Shoebox.exe") { throw "uninstall left the app behind" }
+          if (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "Shoebox.lnk") { throw "uninstall left the shortcut" }
+          "uninstalled cleanly"
       - name: Zip
         shell: pwsh
-        run: Compress-Archive dist/Shoebox Shoebox-Windows.zip
+        run: |
+          Compress-Archive dist/Shoebox Shoebox-Windows.zip
+          Copy-Item dist/Shoebox-Setup.exe .
       - uses: actions/upload-artifact@v4
         with:
           name: Shoebox-Windows
-          path: Shoebox-Windows.zip
+          path: |
+            Shoebox-Setup.exe
+            Shoebox-Windows.zip
 
   macos:
     runs-on: macos-latest
@@ -62,7 +93,6 @@ jobs:
           mkdir -p packaging/bin
           cp "$(brew --prefix ffmpeg)/bin/ffmpeg" "$(brew --prefix ffmpeg)/bin/ffprobe" packaging/bin/
           cp "$(brew --prefix mpv)/lib/libmpv.2.dylib" packaging/bin/libmpv.dylib
-          ls -la packaging/bin
       - name: Build
         run: python packaging/build.py
       - name: Self-test the built app
@@ -70,23 +100,59 @@ jobs:
           dist/Shoebox.app/Contents/MacOS/Shoebox --selftest "$PWD/selftest.txt"; code=$?
           cat selftest.txt
           exit $code
-      - name: Zip
-        run: ditto -c -k --keepParent dist/Shoebox.app Shoebox-macOS.zip
+      - name: Disk image (drag Shoebox into Applications)
+        run: |
+          mkdir dmg && cp -R dist/Shoebox.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname Shoebox -srcfolder dmg -ov -format UDZO Shoebox-macOS.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: Shoebox-macOS
-          path: Shoebox-macOS.zip
+          path: Shoebox-macOS.dmg
+
+  linux:
+    runs-on: ubuntu-22.04  # an older system, so the build runs on older Linux installs too
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq libmpv1 ffmpeg libegl1 libxkbcommon0
+          pip install PySide6 pillow pillow-heif python-mpv pyinstaller
+      - name: Build
+        run: python packaging/build.py
+      - name: Test install.sh, run, uninstall
+        run: |
+          tar czf Shoebox-Linux.tar.gz -C dist Shoebox
+          SHOEBOX_TARBALL=$PWD/Shoebox-Linux.tar.gz sh install.sh
+          ~/.local/bin/shoebox --selftest "$PWD/selftest.txt"; code=$?
+          cat selftest.txt
+          test $code -eq 0
+          sh install.sh --uninstall
+          test ! -e ~/.local/share/shoebox
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shoebox-Linux
+          path: Shoebox-Linux.tar.gz
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, macos]
+    needs: [windows, macos, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the version in the code
+        run: |
+          v=$(sed -E 's/.*"(.+)".*/\1/' shoebox/__init__.py)
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} but the code says $v"; exit 1; }
       - uses: actions/download-artifact@v4
       - uses: softprops/action-gh-release@v2
         with:
           files: |
+            Shoebox-Windows/Shoebox-Setup.exe
             Shoebox-Windows/Shoebox-Windows.zip
-            Shoebox-macOS/Shoebox-macOS.zip
+            Shoebox-macOS/Shoebox-macOS.dmg
+            Shoebox-Linux/Shoebox-Linux.tar.gz
