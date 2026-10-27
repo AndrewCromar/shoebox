@@ -11,12 +11,14 @@ Branches: `main` is the last version Andrew said works; new work goes on `dev` a
    - Andrew can't test those systems here; his dad is the Windows tester.
 
 ## Later
-2. **Duplicates and an ingest folder** (Andrew, 2026-10-27). Friends' photos of a trip go in `media/ingest/` with the
-   same layout (`ingest/2026/06/Grand Teton National Park/`). Shoebox shows them together with the real event, and a
-   duplicates window scans and shows matches side by side (same photo at another size, re-encoded, or renamed)
-   with **keep one** / **merge in** / **discard**. The point: see quickly what he doesn't have yet, without going
-   through everything his friends shot. Nothing is moved or deleted without asking (to the trash, never a hard delete).
-   Matching: an image fingerprint (perceptual hash) plus the date taken; for videos, a few frames and the length.
+2. **Ingest window + duplicates** (Andrew, 2026-10-27). Not a special folder: a window. Say friends upload
+   their Teton photos to a Dropbox folder; in Shoebox he opens Ingest, picks that folder and the event to merge
+   into (e.g. `media/2026/06/Grand Teton National Park`), and Shoebox does its best: it matches what's already
+   there (same photo at another size, re-encoded, renamed; for videos a few frames and the length) and shows the
+   new ones, and the likely duplicates side by side. He accepts photos in (they're moved into the event) or
+   skips them. Every move goes in a log file (not shown in the app) so it can be undone, or Claude can fix
+   things from it. Nothing is deleted; anything thrown away goes to the trash.
+   Matching: an image fingerprint (perceptual hash) plus the date taken.
 
 ## Done
 - Year > month > event tree, misc and other groups below the years, search, settings (media folder, no default),
