@@ -1,3 +1,4 @@
 #!/bin/sh
 # Start the gallery (photo and video viewer).
-cd "$(dirname "$0")" && exec .venv/bin/python -m gallery "$@"
+# MALLOC_ARENA_MAX: fewer per-thread heaps, so memory from decoding big photos goes back to the system.
+cd "$(dirname "$0")" && MALLOC_ARENA_MAX=2 exec .venv/bin/python -m gallery "$@"

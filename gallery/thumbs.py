@@ -4,6 +4,7 @@ A thumbnail is a JPEG, longest side SIZE, keyed by the file's path, size and mod
 file gets a new one. Videos: a frame 1 s in (or the first frame) and their length, from ffmpeg/ffprobe.
 Worker threads make them in the order asked; asking for a new folder drops what's left of the old one.
 """
+import ctypes
 import hashlib
 import json
 import os
@@ -23,6 +24,18 @@ except ImportError:  # HEIC photos just show no thumbnail
 from .library import kind
 
 SIZE = 360
+BIG = 20_000_000  # pixels; a 48 MP HEIC takes ~190 MB to decode, so only one of those at a time
+big_lock = threading.Lock()
+try:
+    _libc = ctypes.CDLL("libc.so.6")
+except OSError:
+    _libc = None
+
+
+def give_back():
+    """Return freed decode buffers to the system (glibc keeps them otherwise)."""
+    if _libc:
+        _libc.malloc_trim(0)
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "gallery" / "thumbs"
 
 
@@ -70,7 +83,7 @@ def make(p: Path) -> tuple[Path, dict]:
         else:
             raise RuntimeError(f"no frame from {p.name}")
     else:
-        with Image.open(p) as im:
+        with Image.open(p) as im, (big_lock if im.width * im.height > BIG and im.format != "JPEG" else _nolock):
             im.draft("RGB", (SIZE * 2, SIZE * 2))  # fast JPEG decode at a smaller size
             taken = im.getexif().get_ifd(0x8769).get(36867) or im.getexif().get(306) or ""  # DateTimeOriginal
             im = ImageOps.exif_transpose(im)
@@ -78,16 +91,28 @@ def make(p: Path) -> tuple[Path, dict]:
             im = im.convert("RGB")
             im.thumbnail((SIZE, SIZE), Image.LANCZOS)
             im.save(tmp, "JPEG", quality=85)
+    give_back()
     tmp.replace(jpg)
     jpg.with_suffix(".json").write_text(json.dumps(meta))
     return jpg, meta
+
+
+class _NoLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+_nolock = _NoLock()
 
 
 class Maker:
     """Background thumbnail makers. ask() replaces the queue; done(path, jpg, meta) is called from a worker
     thread (connect it to a Qt signal)."""
 
-    def __init__(self, done, workers: int = max(2, (os.cpu_count() or 4) // 2)):
+    def __init__(self, done, workers: int = 3):
         self.done = done
         self.q: queue.Queue = queue.Queue()
         self.gen = 0

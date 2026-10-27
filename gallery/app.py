@@ -4,6 +4,7 @@ Looks like the drew.in.nature studio (same colours and font). Works with the key
 Read-only: it never moves, renames or edits a photo.
 """
 import locale
+from collections import OrderedDict
 import os
 import subprocess
 import sys
@@ -27,6 +28,7 @@ ROOT = Path(os.environ.get("GALLERY_ROOT", "~/storage/Dropbox/Kids/Andrew/media/
 C = {"bg": "#111312", "panel": "#171a18", "cur": "#232722", "sel": "#1b2a1f", "line": "#262a27",
      "fg": "#e8e6df", "mid": "#a3a69d", "dim": "#5d625a", "acc": "#cfe3a8", "keep": "#7fbf6a", "cyan": "#8fc1c9"}
 FONT = "Noto Sans Mono"
+MAX_PIX = 300  # thumbnails kept in memory
 QSS = f"""
 * {{ font-family: "{FONT}"; }}
 QWidget {{ background: {C['bg']}; color: {C['fg']}; font-size: 11pt; }}
@@ -84,7 +86,8 @@ class Items(QAbstractListModel):
     def __init__(self):
         super().__init__()
         self.paths: list[Path] = []
-        self.pix: dict[Path, QPixmap] = {}
+        self.pix: OrderedDict[Path, QPixmap] = OrderedDict()  # the last MAX_PIX drawn; the rest load from disk
+        self.jpg: dict[Path, Path] = {}  # thumbnail file in the cache
         self.meta: dict[Path, dict] = {}
         self.row: dict[Path, int] = {}
 
@@ -104,11 +107,26 @@ class Items(QAbstractListModel):
             return self.paths[index.row()].name
         return None
 
+    def pixmap(self, p: Path) -> QPixmap | None:
+        """The thumbnail, loaded from the disk cache when it's drawn; only the last MAX_PIX stay in memory."""
+        pm = self.pix.get(p)
+        if pm is not None:
+            self.pix.move_to_end(p)
+            return pm
+        jpg = self.jpg.get(p)
+        if not jpg:
+            return None
+        pm = QPixmap(str(jpg))
+        if pm.isNull():
+            return None
+        self.pix[p] = pm
+        if len(self.pix) > MAX_PIX:
+            self.pix.popitem(last=False)
+        return pm
+
     def got(self, p: Path, jpg, meta):
         if jpg:
-            pm = QPixmap(str(jpg))
-            if not pm.isNull():
-                self.pix[p] = pm
+            self.jpg[p] = jpg
         self.meta[p] = meta
         if p in self.row:
             i = self.index(self.row[p])
@@ -130,7 +148,7 @@ class Cell(QStyledItemDelegate):
         selected = bool(option.state & option.state.State_Selected)
         painter.save()
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        pm = self.m.pix.get(p)
+        pm = self.m.pixmap(p)
         if pm:
             s = pm.size().scaled(r.size(), Qt.KeepAspectRatio)
             box = QRect(r.x() + (r.width() - s.width()) // 2, r.y() + (r.height() - s.height()) // 2, s.width(), s.height())
@@ -308,13 +326,14 @@ class Viewer(QWidget):
                     q = QImage(im.tobytes(), im.width, im.height, im.width * 3, QImage.Format_RGB888).copy()
             except Exception as ex:
                 q = f"can't open {p.name}: {ex}"
+            thumbs.give_back()
             self.loaded.emit(p, q)
         threading.Thread(target=work, daemon=True).start()
 
     def got(self, p, img):
         if isinstance(img, QImage):
             self.cache[p] = img
-            if len(self.cache) > 12:
+            if len(self.cache) > 4:
                 self.cache.pop(next(iter(self.cache)))
         if not self.paths or p != self.paths[self.i]:
             return
@@ -551,7 +570,7 @@ class Gallery(QWidget):
                           + span(f"   {len(files) - n_vid} photos · {n_vid} videos", "dim"))
         need = []
         for p in files:
-            if p in self.items.pix:
+            if p in self.items.jpg:
                 continue
             hit = thumbs.cached(p)
             if hit:
