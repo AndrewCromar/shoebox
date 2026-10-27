@@ -18,7 +18,7 @@ first start; change it any time in Settings).
 - **Enter / double-click:** full size. ←→ next/previous; videos play inside the window (space pauses, shift ←→ jumps
   5 s, `,` `.` 1 s). Shows when it was taken (EXIF or the video's creation time).
 - **Keys** (the bar at the bottom changes with where you are: folders, photos or viewing): ↑↓ folders, → or Enter to the
-  thumbnails, Esc back. `+` `−` or Ctrl+wheel change the thumbnail size.
+  thumbnails, Esc back (Esc in the folders quits, so Esc Esc Esc gets you all the way out). `+` `−` or Ctrl+wheel change the thumbnail size.
   `o` opens the file in its usual app, `d` shows it in the file manager (Dolphin), `f` full screen, F5 reloads,
   `q` quits, `/` or Ctrl+F searches the folder names (Enter keeps the filter, Esc clears it). The outline on a thumbnail only shows while you're in the photos.
 

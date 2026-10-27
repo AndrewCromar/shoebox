@@ -807,7 +807,7 @@ class Shoebox(QWidget):
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("/", "search"), ("d", "open in file manager"), ("s", "settings"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
+                    ("/", "search"), ("d", "open in file manager"), ("s", "settings"), ("f5", "reload"), ("f", "full screen"), ("esc q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
@@ -923,6 +923,8 @@ class Tree(QTreeWidget):
                 self.to_grid.emit()
         elif e.key() == Qt.Key_Right and it and (it.isExpanded() or not it.childCount()):
             self.to_grid.emit()
+        elif e.key() == Qt.Key_Escape:  # viewer -> photos -> folders -> quit: Esc all the way out
+            QApplication.quit()
         else:
             super().keyPressEvent(e)
 
