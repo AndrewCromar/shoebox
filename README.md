@@ -69,6 +69,11 @@ in the event: the picture decides, so renamed, resized, re-saved or re-dated cop
 moves the ticked ones in, `z` undoes the last move. Nothing is deleted; every move is logged in
 `ingest-log.jsonl` in the settings folder.
 
+**Duplicates (Shift+D):** the same picture more than once in what's selected (an event, a month, a year), even
+renamed, resized or re-saved. Each set is shown side by side; the best copy (most pixels, then biggest file) is
+marked KEEP, the rest TRASH. ←→ picks a copy, space switches it, Enter does the set (to the system trash /
+Recycle Bin, so it can be restored), ↑↓ moves between sets, `z` puts the last set back. Logged in `dupes-log.jsonl`.
+
 **Settings (s):** pick the media folder (there's no default: the first start asks; remembered in `~/.config/shoebox/settings.json`) or
 clear the thumbnails. It also remembers the last folder you looked at and opens there.
 
@@ -79,6 +84,7 @@ Read-only: it never moves, renames or edits anything in the library. Thumbnails 
 |---|---|
 | `shoebox/library.py` | scans the folders, dates from names |
 | `shoebox/matcher.py` | fingerprints: is this photo already there? (Ingest, later Duplicates) |
+| `shoebox/dupes.py` | the Duplicates page: finding sets, trash, undo |
 | `shoebox/ingest.py` | the Ingest page; moving files in, the log, undo |
 | `shoebox/thumbs.py` | thumbnail cache, background workers (Pillow, ffmpeg) |
 | `shoebox/app.py` | the window: folder tree, grid, viewer (mpv) |

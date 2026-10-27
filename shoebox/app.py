@@ -55,7 +55,8 @@ def media_root() -> Path | None:
 ROOT = media_root()
 
 C = {"bg": "#111312", "panel": "#171a18", "cur": "#232722", "sel": "#1b2a1f", "line": "#262a27",
-     "fg": "#e8e6df", "mid": "#a3a69d", "dim": "#5d625a", "acc": "#cfe3a8", "keep": "#7fbf6a", "cyan": "#8fc1c9"}
+     "fg": "#e8e6df", "mid": "#a3a69d", "dim": "#5d625a", "acc": "#cfe3a8", "keep": "#7fbf6a", "cyan": "#8fc1c9",
+     "warn": "#e0b84f", "bad": "#e07a5f"}
 FONT = "Noto Sans Mono"
 MAX_PIX = 300  # thumbnails kept in memory
 QSS = f"""
@@ -561,7 +562,8 @@ class Shoebox(QWidget):
         QShortcut(QKeySequence("Ctrl+F"), self, self.start_search)
         QShortcut(QKeySequence("U"), self, self.update_now)
         QShortcut(QKeySequence("I"), self, self.open_ingest)
-        self.ingest = None
+        QShortcut(QKeySequence("Shift+D"), self, self.open_dupes)
+        self.ingest = self.dupes = None
         self.update_found.connect(self.got_update)
         self.release = None
         self.reload()
@@ -585,6 +587,22 @@ class Shoebox(QWidget):
         self.ingest.grid.setFocus()
         self.show_keys()
         self.ingest.start(v.path if kind == "folder" and v.name != "loose files" else None)
+
+    def open_dupes(self):
+        """Duplicates (dupes.py) in whatever's selected: an event, a month, a year."""
+        if self.pages.currentWidget() is not self.pages.widget(0) or not self.tree.currentItem():
+            return
+        if self.dupes is None:
+            from .dupes import Dupes
+            self.dupes = Dupes(self)
+            self.dupes.back.connect(self.close_ingest)
+            self.dupes.changed.connect(self.reload)
+            self.pages.addWidget(self.dupes)
+        it = self.tree.currentItem()
+        self.pages.setCurrentWidget(self.dupes)
+        self.dupes.setFocus()
+        self.show_keys()
+        self.dupes.start(it.text(0).strip(), self.files_of(it))
 
     def close_ingest(self):
         self.pages.setCurrentIndex(0)
@@ -919,6 +937,8 @@ class Shoebox(QWidget):
     def show_keys(self, *_):
         if self.ingest is not None and self.pages.currentWidget() is self.ingest:
             keys = self.ingest.keys()
+        elif self.dupes is not None and self.pages.currentWidget() is self.dupes:
+            keys = self.dupes.keys()
         elif self.pages.currentWidget() is self.viewer:
             video = self.viewer.paths and library.kind(self.viewer.paths[self.viewer.i]) in ("video", "audio")
             keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
@@ -933,7 +953,7 @@ class Shoebox(QWidget):
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("/", "search"), ("i", "ingest"), ("d", "open in file manager"), ("s", "settings"), ("r", "reload"), ("f", "full screen"), ("esc q", "quit")]
+                    ("/", "search"), ("i", "ingest"), ("D", "duplicates"), ("d", "open in file manager"), ("s", "settings"), ("r", "reload"), ("f", "full screen"), ("esc q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
