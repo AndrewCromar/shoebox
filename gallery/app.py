@@ -158,9 +158,9 @@ class Cell(QStyledItemDelegate):
             painter.fillRect(box, QColor(C["panel"]))
             painter.setPen(QColor(C["dim"]))
             painter.drawText(box, Qt.AlignCenter, p.suffix.lower().lstrip("."))
-        if library.kind(p) == "video":
+        if library.kind(p) in ("video", "audio"):
             d = self.m.meta.get(p, {}).get("duration")
-            text = "▶ " + (fmt_len(d) if d else "")
+            text = ("▶ " if library.kind(p) == "video" else "♪ ") + (fmt_len(d) if d else "")
             f = QFont(FONT, 9)
             painter.setFont(f)
             w = painter.fontMetrics().horizontalAdvance(text) + 12
@@ -303,7 +303,15 @@ class Viewer(QWidget):
             self.image = None
             self.stack.setCurrentWidget(self.video)
             self.video.play(p)
+        elif library.kind(p) == "audio":  # plays through mpv; the page shows its name (and cover, if any)
+            self.image = None
+            self.stack.setCurrentWidget(self.pic)
+            self.pic.setText(span("♪", "acc") + "<br><br>" + span(p.stem, "fg", True) + "<br>"
+                             + span(fmt_len(self.meta.get(p, {}).get("duration") or 0), "mid"))
+            self.pic.setStyleSheet(f"background:#000; font-size:28pt;")
+            self.video.play(p)
         else:
+            self.pic.setStyleSheet("background:#000;")
             self.video.stop()
             self.stack.setCurrentWidget(self.pic)
             if p in self.cache:
@@ -369,7 +377,7 @@ class Viewer(QWidget):
 
     def keyPressEvent(self, e):
         k, t = e.key(), e.text()
-        video = self.stack.currentWidget() is self.video
+        video = library.kind(self.paths[self.i]) in ("video", "audio") if self.paths else False
         if k in (Qt.Key_Right, Qt.Key_PageDown) and not (video and e.modifiers() & Qt.ShiftModifier):
             self.step(1)
         elif k in (Qt.Key_Left, Qt.Key_PageUp) and not (video and e.modifiers() & Qt.ShiftModifier):
@@ -568,8 +576,10 @@ class Gallery(QWidget):
         else:
             title, when = v, ""
         n_vid = sum(library.kind(p) == "video" for p in files)
+        n_aud = sum(library.kind(p) == "audio" for p in files)
         self.head.setText(span(title, "fg", True) + span(f"   {when}" if when else "", "mid")
-                          + span(f"   {len(files) - n_vid} photos · {n_vid} videos", "dim"))
+                          + span(f"   {len(files) - n_vid - n_aud} photos · {n_vid} videos"
+                                 + (f" · {n_aud} audio" if n_aud else ""), "dim"))
         need = []
         for p in files:
             if p in self.items.jpg:
@@ -644,7 +654,7 @@ class Gallery(QWidget):
 
     def show_keys(self, *_):
         if self.pages.currentWidget() is self.viewer:
-            video = self.viewer.paths and library.kind(self.viewer.paths[self.viewer.i]) == "video"
+            video = self.viewer.paths and library.kind(self.viewer.paths[self.viewer.i]) in ("video", "audio")
             keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
             if video:
                 keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s")]

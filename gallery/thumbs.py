@@ -13,7 +13,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
     import pillow_heif
@@ -72,7 +72,19 @@ def make(p: Path) -> tuple[Path, dict]:
     jpg.parent.mkdir(parents=True, exist_ok=True)
     tmp = jpg.with_name(f".{k}.{threading.get_ident()}.jpg")
     meta = {}
-    if kind(p) == "video":
+    if kind(p) == "audio":
+        meta = probe(p)
+        # its cover art if it has one, else a plain tile with a note
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(p), "-an", "-frames:v", "1",
+                            "-vf", f"scale={SIZE}:-2", str(tmp)], capture_output=True, stdin=subprocess.DEVNULL)
+        if r.returncode != 0 or not tmp.exists() or not tmp.stat().st_size:
+            tile = Image.new("RGB", (SIZE, SIZE), "#1d2320")
+            d = ImageDraw.Draw(tile)
+            found = subprocess.run(["fc-match", "-f", "%{file}", "sans:charset=266a"], capture_output=True, text=True)
+            font = ImageFont.truetype(found.stdout or "DejaVuSans.ttf", SIZE // 3)  # a font that has ♪
+            d.text((SIZE / 2, SIZE / 2), "♪", font=font, fill="#cfe3a8", anchor="mm")
+            tile.save(tmp, "JPEG", quality=90)
+    elif kind(p) == "video":
         meta = probe(p)
         for at in ("1", "0"):
             r = subprocess.run(["nice", "ffmpeg", "-v", "error", "-y", "-ss", at, "-i", str(p), "-frames:v", "1",

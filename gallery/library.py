@@ -11,6 +11,7 @@ from pathlib import Path
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".mts", ".mkv", ".avi", ".webm", ".3gp"}
+AUDIO_EXT = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac", ".wma", ".aiff", ".aif"}
 SKIP_DIRS = {"proxy", ".thumbnails", "@eaDir"}
 DATE_RE = re.compile(r"^(\d{4})-(\d{2})(?:-(\d{2}))?\s*(.*)$")
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
@@ -19,7 +20,7 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July", "Augus
 
 def kind(p: Path) -> str | None:
     ext = p.suffix.lower()
-    return "image" if ext in IMAGE_EXT else "video" if ext in VIDEO_EXT else None
+    return "image" if ext in IMAGE_EXT else "video" if ext in VIDEO_EXT else "audio" if ext in AUDIO_EXT else None
 
 
 @dataclass

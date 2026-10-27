@@ -1,6 +1,6 @@
 # gallery
 
-A Picasa-style photo and video viewer for `~/storage/Dropbox/Kids/Andrew/media/_photos and videos/`.
+A Picasa-style photo, video and audio viewer for `~/storage/Dropbox/Kids/Andrew/media/_photos and videos/`.
 
 ```
 ./gallery-app                # or "Gallery" in the KDE menu
