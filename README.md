@@ -7,34 +7,46 @@ first start; change it any time in Settings). It only looks: it never moves, ren
 
 ## Install
 
-Download the zip for your computer from the
-[latest release](https://github.com/AndrewCromar/shoebox/releases/latest) (under **Assets**).
+Downloads are on the [latest release](https://github.com/AndrewCromar/shoebox/releases/latest), under **Assets**.
 
 ### Windows
-1. Download **Shoebox-Windows.zip**.
-2. Right-click it → **Extract All…** → **Extract**.
-3. Open the new **Shoebox** folder and double-click **Shoebox.exe**.
-4. Windows may say *"Windows protected your PC"* (it does this for apps that aren't from a big company).
-   Click **More info**, then **Run anyway**. It only asks the first time.
-5. Shoebox asks for your photos folder: click **Choose a folder…** and pick the folder with your pictures.
+1. Download **Shoebox-Setup.exe** and double-click it.
+2. Windows may say *"Windows protected your PC"* (it says that for apps that aren't from a big company).
+   Click **More info**, then **Run anyway**.
+3. Click **Next** a few times, then **Install**. No admin password needed. Tick *desktop shortcut* if you want one.
+4. Open **Shoebox** from the Start menu. It asks for your photos folder: click **Choose a folder…** and pick it.
 
-To start it again later: right-click **Shoebox.exe** → **Show more options** → **Send to** → **Desktop (create
-shortcut)**, then use the shortcut on your desktop. (Keep the Shoebox folder where it is; the .exe needs the files
-next to it.)
+**Updating:** when there's a new version, Shoebox shows a green bar at the top. Press **u** and it updates itself
+and opens again. **Uninstalling:** Start → Settings → Apps → **Shoebox** → Uninstall (your photos are never touched).
 
 ### Mac
-1. Download **Shoebox-macOS.zip** and double-click it. You get **Shoebox**.
-2. Drag **Shoebox** into your **Applications** folder.
-3. The first time, **right-click** Shoebox → **Open** → **Open**. (A plain double-click shows *"can't be opened"*
-   for apps that aren't from the App Store.) If it still won't open: **System Settings** → **Privacy & Security**
-   → scroll down → **Open Anyway**.
-4. Shoebox asks for your photos folder: click **Choose a folder…** and pick it.
+1. Download **Shoebox-macOS.dmg** and double-click it.
+2. Drag **Shoebox** onto the **Applications** folder in that window.
+3. The first time, open your Applications folder, **right-click** Shoebox → **Open** → **Open**. (A plain
+   double-click says it *"can't be opened"*, because it isn't from the App Store.) If it still won't open:
+   **System Settings** → **Privacy & Security** → scroll down → **Open Anyway**.
+4. It asks for your photos folder: click **Choose a folder…** and pick it.
 
-### Linux (from the source)
+**Updating:** the green bar's **u** opens the download page; drag the new one into Applications again.
+**Uninstalling:** drag Shoebox from Applications to the Trash.
+
+### Linux
+Paste this into a terminal (no sudo; it goes in your home folder and your app menu):
+```
+curl -fsSL https://raw.githubusercontent.com/AndrewCromar/shoebox/main/install.sh | sh
+```
+Run the same line again to update. To uninstall:
+```
+curl -fsSL https://raw.githubusercontent.com/AndrewCromar/shoebox/main/install.sh | sh -s -- --uninstall
+```
+For videos it needs **mpv** and **ffmpeg** from your package manager; the installer tells you the command if
+they're missing.
+
+### From the source (any system)
 ```
 git clone https://github.com/AndrewCromar/shoebox && cd shoebox
 python3 -m venv .venv && .venv/bin/pip install PySide6 pillow pillow-heif python-mpv
-./shoebox-app                # needs mpv (libmpv) and ffmpeg from your package manager
+./shoebox-app
 ```
 
 ## Using it
@@ -74,5 +86,7 @@ ln -s "$PWD/assets/shoebox.svg" ~/.local/share/icons/hicolor/scalable/apps/shoeb
 
 GitHub builds them (`.github/workflows/build.yml`) on every push to `main`, `dev` or `platforms`, runs the app's
 self-test on each (`Shoebox --selftest report.txt`: thumbnails, video player, window), and keeps the zips under the
-run's **Artifacts**. Pushing a tag like `v1.0` also makes a release with both zips, which is what the Install links
-above download. Locally: `python packaging/build.py` (see the file for the tools it bundles).
+run's **Artifacts**. On Windows it also tests the installer: install, run the installed app's self-test,
+uninstall, check nothing's left. Linux tests `install.sh` the same way. Pushing a tag that matches the version in
+`shoebox/__init__.py` (e.g. `v1.0.0`) makes a release with all the downloads, which is what the Install links
+above (and the in-app updater) use. Locally: `python packaging/build.py` (see the file for the tools it bundles).
