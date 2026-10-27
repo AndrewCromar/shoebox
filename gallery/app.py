@@ -145,7 +145,7 @@ class Cell(QStyledItemDelegate):
     def paint(self, painter: QPainter, option, index):
         p = self.m.paths[index.row()]
         r = option.rect.adjusted(6, 6, -6, -6)
-        selected = bool(option.state & option.state.State_Selected)
+        selected = bool(option.state & option.state.State_Selected) and option.widget.hasFocus()
         painter.save()
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         pm = self.m.pixmap(p)
@@ -267,6 +267,7 @@ class Viewer(QWidget):
     """One photo or video, filling the window. ←→ next/previous, Esc back to the grid."""
     loaded = Signal(object, object)  # (path, QImage or error text)
     back = Signal()
+    changed = Signal()  # another photo/video: the keys bar follows
 
     def __init__(self):
         super().__init__()
@@ -358,10 +359,8 @@ class Viewer(QWidget):
         p = self.paths[self.i]
         when = taken(p, self.meta.get(p, {}))
         self.info.setText(span(p.name, "fg", True) + span(f"   {self.i + 1} / {len(self.paths)}   ", "mid")
-                          + span(f"{p.parent.name}   ·   {when}", "dim")
-                          + span("     ←→ next   " + ("space play/pause   shift ←→ 5 s   , . 1 s   "
-                                                        if library.kind(p) == "video" else "")
-                                 + "f full screen   o open in its app   esc back", "dim"))
+                          + span(f"{p.parent.name}   ·   {when}", "dim"))
+        self.changed.emit()
 
     def step(self, d: int):
         if self.paths:
@@ -447,6 +446,7 @@ class Gallery(QWidget):
 
         self.viewer = Viewer()
         self.viewer.back.connect(self.close_viewer)
+        self.viewer.changed.connect(self.show_keys)
         self.pages.addWidget(self.viewer)
 
         self.keys = label(color="dim", size=10)
@@ -460,6 +460,9 @@ class Gallery(QWidget):
         QShortcut(QKeySequence("F11"), self, self.toggle_full)
         QShortcut(QKeySequence("O"), self, self.open_external)
         QShortcut(QKeySequence("Ctrl+O"), self, self.open_folder)
+        QShortcut(QKeySequence("D"), self, self.open_folder)
+        QShortcut(QKeySequence("Q"), self, QApplication.quit)
+        QApplication.instance().focusChanged.connect(self.focus_moved)
         QShortcut(QKeySequence("F5"), self, self.reload)
         self.reload()
         self.tree.setFocus()
@@ -627,17 +630,39 @@ class Gallery(QWidget):
             launch("xdg-open", p)
 
     def open_folder(self):
-        p = self.current_path()
-        if p:
-            launch("dolphin", "--select", p)
-
-    def show_keys(self):
-        if self.pages.currentWidget() is self.viewer:
-            self.keys.setText("")
+        """d: the default file manager (Dolphin), at the folder, or with the photo selected."""
+        in_folders = self.pages.currentWidget() is not self.viewer and not self.grid.hasFocus()
+        if in_folders:
+            it = self.tree.currentItem()
+            kind, v = it.data(0, Qt.UserRole) if it else (None, None)
+            launch("xdg-open", v.path if kind == "folder" else self.root)
             return
-        self.keys.setText("↑↓ folders   → or enter: thumbnails   enter opens   tab back to folders   "
-                          "+ − size (ctrl+wheel)   o open in its app   ctrl+o show in Dolphin   f full screen   "
-                          "f5 reload")
+        p = self.current_path()
+        if p:  # the freedesktop "show this file" call: opens the default file manager with it selected
+            launch("dbus-send", "--session", "--dest=org.freedesktop.FileManager1", "--type=method_call",
+                   "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems",
+                   f"array:string:{p.as_uri()}", "string:")
+
+    def show_keys(self, *_):
+        if self.pages.currentWidget() is self.viewer:
+            video = self.viewer.paths and library.kind(self.viewer.paths[self.viewer.i]) == "video"
+            keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
+            if video:
+                keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s")]
+            keys += [("o", "open in its app"), ("d", "show in file manager"), ("f", "full screen"),
+                     ("esc", "back to thumbnails"), ("q", "quit")]
+        elif self.grid.hasFocus():
+            keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("o", "open in its app"),
+                    ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
+        else:
+            keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "to the photos"),
+                    ("d", "open in file manager"), ("f5", "reload"), ("f", "full screen"), ("q", "quit")]
+        self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
+                                     for k, d in keys))
+
+    def focus_moved(self, *_):
+        self.grid.viewport().update()  # the outline shows only while you're in the thumbnails
+        self.show_keys()
 
     def closeEvent(self, e):
         self.viewer.video.stop()
