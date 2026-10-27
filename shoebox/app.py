@@ -515,7 +515,12 @@ class Shoebox(QWidget):
         rv.addWidget(self.grid, 1)
         browse.addWidget(right)
         browse.setStretchFactor(1, 1)
-        browse.setSizes([400, 1200])
+        browse.setSizes([int(settings().get("pane", 400)), 1200])  # the folder pane keeps the width you drag it to
+        self.pane_save = QTimer(self)
+        self.pane_save.setSingleShot(True)
+        self.pane_save.setInterval(400)
+        self.pane_save.timeout.connect(lambda: save_settings({**settings(), "pane": browse.sizes()[0]}))
+        browse.splitterMoved.connect(lambda *_: self.pane_save.start())
         self.pages.addWidget(browse)
 
         self.viewer = Viewer()
@@ -993,8 +998,8 @@ def main():
     app.setWindowIcon(QIcon(str(ICON)))
     root = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else ROOT
     w = Shoebox(root)
-    w.resize(1600, 980)
-    w.show()
+    w.resize(1600, 980)  # the size it comes back to if you un-maximize it
+    w.showMaximized()
     if not root:  # first start: pick the photos folder
         QTimer.singleShot(300, w.open_settings)
     code = app.exec()

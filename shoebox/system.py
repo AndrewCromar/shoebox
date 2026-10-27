@@ -85,8 +85,8 @@ def open_path(p: Path):
 
 def show_in_file_manager(p: Path):
     """The file manager with this file selected (Dolphin, Explorer, Finder)."""
-    if WINDOWS:
-        _detached(["explorer", f"/select,{p}"])
+    if WINDOWS:  # one command line, built by hand: Explorer doesn't understand "/select,C:\a b.jpg" in quotes
+        subprocess.Popen(f'explorer /select,"{p}"', creationflags=subprocess.DETACHED_PROCESS)
     elif MAC:
         _detached(["open", "-R", p])
     else:  # the freedesktop "show this file" call, which every Linux file manager answers
