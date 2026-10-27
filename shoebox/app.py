@@ -215,7 +215,7 @@ class Grid(QListView):
         self.setResizeMode(QListView.Adjust)
         self.setMovement(QListView.Static)
         self.setUniformItemSizes(True)
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)  # one at a time until there's a use for more
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(40)
         self.setSpacing(0)
@@ -822,6 +822,7 @@ class Shoebox(QWidget):
             self.showFullScreen()
 
     was_full = False
+    side = "folders"  # where you are: "folders" or "photos" (d shows the folder, or the photo selected)
 
     def current_path(self) -> Path | None:
         if self.pages.currentWidget() is self.viewer and self.viewer.paths:
@@ -837,7 +838,7 @@ class Shoebox(QWidget):
 
     def open_folder(self):
         """d: the file manager (Dolphin, Explorer, Finder), at the folder, or with the photo selected."""
-        in_folders = self.pages.currentWidget() is not self.viewer and not self.grid.hasFocus()
+        in_folders = self.pages.currentWidget() is not self.viewer and self.side == "folders"
         if in_folders:
             it = self.tree.currentItem()
             kind, v = it.data(0, Qt.UserRole) if it else (None, None)
@@ -867,7 +868,10 @@ class Shoebox(QWidget):
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
-    def focus_moved(self, *_):
+    def focus_moved(self, _old, new):
+        # which side you're on: a click elsewhere (a dialog, the search box) keeps the last one
+        if new is self.grid or new is self.tree:
+            self.side = "photos" if new is self.grid else "folders"
         self.grid.viewport().update()  # the outline shows only while you're in the thumbnails
         self.show_keys()
 
