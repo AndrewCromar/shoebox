@@ -39,7 +39,7 @@ Run the same line again to update. To uninstall:
 ```
 curl -fsSL https://raw.githubusercontent.com/AndrewCromar/shoebox/main/install.sh | sh -s -- --uninstall
 ```
-It needs Python 3.10+ (most Linux systems have it), and for videos **mpv** and **ffmpeg** from your package
+It needs Python 3.12+ (most Linux systems have it), and for videos **mpv** and **ffmpeg** from your package
 manager; the installer tells you the command for anything missing. Shoebox's own update bar (**u**) runs it
 again for you.
 

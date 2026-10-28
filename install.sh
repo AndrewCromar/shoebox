@@ -36,13 +36,14 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 PY=""
-for p in python3.13 python3.12 python3.11 python3.10 python3; do
-    if command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+# 3.12+: on older Pythons PySide6 6.12 slowly drains None's refcount while painting and crashes
+for p in python3 python3.14 python3.13 python3.12; do
+    if command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
         PY="$p"; break
     fi
 done
 if [ -z "$PY" ]; then
-    say "Shoebox needs Python 3.10 or newer with venv. Install it, then run this again:"
+    say "Shoebox needs Python 3.12 or newer with venv. Install it, then run this again:"
     hint " python3 python3-venv" " python" " python3"
     exit 1
 fi
@@ -65,6 +66,9 @@ tar -xzf "$TMP/src.tar.gz" -C "$APP/src.new" --strip-components=1
 rm -rf "$APP/src" && mv "$APP/src.new" "$APP/src"
 rm -rf "$APP/_internal" "$APP/Shoebox"  # an older install was a prebuilt bundle; not needed any more
 
+if [ -x "$APP/venv/bin/python" ] && ! "$APP/venv/bin/python" -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
+    rm -rf "$APP/venv"  # made with an older Python; rebuild it
+fi
 if [ ! -x "$APP/venv/bin/python" ]; then
     say "Setting up Python packages (the first time takes a minute)…"
     "$PY" -m venv "$APP/venv"
