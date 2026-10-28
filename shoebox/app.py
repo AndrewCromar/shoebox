@@ -858,6 +858,8 @@ class Shoebox(QWidget):
         if self.pages.currentWidget() is self.viewer:
             if self.viewer.sliding:
                 self.viewer.stop_slides()
+                if self.isFullScreen() and not self.was_full:  # the slideshow made it full screen
+                    self.leave_full()
                 return
         elif self.pages.currentIndex() == 0 and self.items.paths:
             i = self.grid.currentIndex()
@@ -1375,11 +1377,15 @@ class Shoebox(QWidget):
     was_max = True  # before full screen: maximized (back to that) or a window
 
     def full_screen(self):
+        # keep the maximized flag alongside full screen: KDE/Wayland then returns to maximized by itself
         self.was_max = self.isMaximized()
-        self.showFullScreen()
+        self.setWindowState(self.windowState() | Qt.WindowFullScreen)
 
     def leave_full(self):
-        self.showMaximized() if self.was_max else self.showNormal()
+        state = self.windowState() & ~Qt.WindowFullScreen
+        self.setWindowState(state | Qt.WindowMaximized if self.was_max else state & ~Qt.WindowMaximized)
+        if self.was_max:  # some window managers drop it on the way out: ask again once it's left
+            QTimer.singleShot(150, lambda: self.isMaximized() or self.isFullScreen() or self.showMaximized())
     side = "folders"  # where you are: "folders" or "photos" (d shows the folder, or the photo selected)
 
     def current_path(self) -> Path | None:
