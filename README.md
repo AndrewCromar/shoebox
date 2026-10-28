@@ -3,7 +3,7 @@
 <img src="assets/shoebox.svg" width="96" alt="Shoebox icon">
 
 A Picasa-style photo, video and audio viewer. Point it at the folder with your photos and videos (it asks on the
-first start; change it any time in Settings). It only looks: it never moves, renames or changes your photos.
+first start; change it any time in Settings). It only looks: it never moves, renames or changes your photos, except when you ask (turning one with `t`, Ingest, Duplicates).
 
 ## Install
 
@@ -74,6 +74,9 @@ moves the ticked ones in, `z` undoes the last move. Nothing is deleted; every mo
 renamed, resized or re-saved. Each set is shown side by side; the best copy (most pixels, then biggest file) is
 marked KEEP, the rest TRASH. ←→ picks a copy, space switches it, Enter does the set (to the system trash /
 Recycle Bin, so it can be restored), ↑↓ moves between sets, `z` puts the last set back. Logged in `dupes-log.jsonl`.
+
+**Turn (t):** a quarter turn clockwise, on a thumbnail or full size; press again for more. It's saved in the file. A JPEG
+keeps every pixel (only its orientation tag changes, like a phone does), other pictures are saved turned. The file keeps its date.
 
 **Settings (s):** pick the media folder (there's no default: the first start asks; remembered in `~/.config/shoebox/settings.json`) or
 clear the thumbnails. It also remembers the last folder you looked at and opens there.

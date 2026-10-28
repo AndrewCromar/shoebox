@@ -22,13 +22,14 @@ except (ImportError, OSError):  # no libmpv: photos still work, videos open in t
     mpv = None
 from PIL import Image, ImageOps
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut
+from PySide6.QtGui import (QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut,
+                           QTransform)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDialog, QPushButton, QHBoxLayout, QLabel, QLineEdit, QListView, QSplitter,
                                QStackedWidget, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
-from . import __version__, library, thumbs, updates
+from . import __version__, library, rotate, thumbs, updates
 
 CONFIG = system.config_dir() / "settings.json"
 ICON = Path(__file__).resolve().parent.parent / "assets" / "shoebox.svg"
@@ -563,6 +564,7 @@ class Shoebox(QWidget):
         QShortcut(QKeySequence("U"), self, self.update_now)
         QShortcut(QKeySequence("I"), self, self.open_ingest)
         QShortcut(QKeySequence("Shift+D"), self, self.open_dupes)
+        QShortcut(QKeySequence("T"), self, self.turn)
         self.ingest = self.dupes = None
         self.update_found.connect(self.got_update)
         self.release = None
@@ -915,6 +917,31 @@ class Shoebox(QWidget):
         i = self.grid.currentIndex()
         return self.items.paths[i.row()] if i.isValid() else None
 
+    def turn(self):
+        """t: the photo a quarter turn clockwise, saved (rotate.py); again for more."""
+        viewing = self.pages.currentWidget() is self.viewer
+        if not viewing and not (self.pages.currentIndex() == 0 and self.side == "photos"):
+            return
+        p = self.current_path()
+        if not p or library.kind(p) != "image":
+            return
+        if not rotate.can_rotate(p):
+            self.keys.setText(span(f"{p.suffix} photos can't be turned", "warn"))
+            return
+        try:
+            rotate.rotate(p)
+        except Exception as ex:
+            self.keys.setText(span(f"couldn't turn {p.name}: {ex}", "bad"))
+            return
+        self.items.pix.pop(p, None)  # the grid makes a new thumbnail
+        self.items.jpg.pop(p, None)
+        self.viewer.cache.pop(p, None)
+        if viewing and self.viewer.image is not None and self.viewer.paths[self.viewer.i] == p:
+            self.viewer.image = self.viewer.image.transformed(QTransform().rotate(90))  # at once, then sharp
+            self.viewer.fit()
+            self.viewer.want([p])
+        self.ask_thumbs()
+
     def open_external(self):
         p = self.current_path()
         if p:
@@ -944,12 +971,12 @@ class Shoebox(QWidget):
             keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
             if video:
                 keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s")]
-            keys += [("o", "open in its app"), ("d", "show in file manager"), ("f", "full screen"),
-                     ("esc", "back to thumbnails"), ("q", "quit")]
+            keys += ([] if video else [("t", "turn")]) + [("o", "open in its app"), ("d", "show in file manager"),
+                                                          ("f", "full screen"), ("esc", "back to thumbnails"), ("q", "quit")]
         elif self.search.hasFocus():
             keys = [("SEARCH", ""), ("type", "filter folders"), ("enter ↓", "to the folders"), ("esc", "clear")]
         elif self.grid.hasFocus():
-            keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("o", "open in its app"),
+            keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("t", "turn"), ("o", "open in its app"),
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
