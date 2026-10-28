@@ -39,8 +39,9 @@ Run the same line again to update. To uninstall:
 ```
 curl -fsSL https://raw.githubusercontent.com/AndrewCromar/shoebox/main/install.sh | sh -s -- --uninstall
 ```
-For videos it needs **mpv** and **ffmpeg** from your package manager; the installer tells you the command if
-they're missing.
+It needs Python 3.10+ (most Linux systems have it), and for videos **mpv** and **ffmpeg** from your package
+manager; the installer tells you the command for anything missing. Shoebox's own update bar (**u**) runs it
+again for you.
 
 ### From the source (any system)
 ```
@@ -101,6 +102,7 @@ ln -s "$PWD/assets/shoebox.svg" ~/.local/share/icons/hicolor/scalable/apps/shoeb
 GitHub builds them (`.github/workflows/build.yml`) on every push to `main` or `dev`, runs the app's
 self-test on each (`Shoebox --selftest report.txt`: thumbnails, video player, window), and keeps the zips under the
 run's **Artifacts**. On Windows it also tests the installer: install, run the installed app's self-test,
-uninstall, check nothing's left. Linux tests `install.sh` the same way. Pushing a tag that matches the version in
+uninstall, check nothing's left. Linux tests `install.sh` the same way (Linux installs from the source with its
+own Python environment, using the system's mpv and ffmpeg). Pushing a tag that matches the version in
 `shoebox/__init__.py` (e.g. `v1.0.0`) makes a release with all the downloads, which is what the Install links
 above (and the in-app updater) use. Locally: `python packaging/build.py` (see the file for the tools it bundles).

@@ -109,32 +109,21 @@ jobs:
           name: Shoebox-macOS
           path: Shoebox-macOS.dmg
 
-  linux:
-    runs-on: ubuntu-22.04  # an older system, so the build runs on older Linux installs too
+  linux:  # Linux installs from source with install.sh (a prebuilt bundle clashes with newer system libraries)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Packages
-        run: |
-          sudo apt-get update -q && sudo apt-get install -yq libmpv1 ffmpeg libegl1 libxkbcommon0
-          pip install PySide6 pillow pillow-heif python-mpv pyinstaller
-      - name: Build
-        run: python packaging/build.py
+      - name: System packages (what a user would have)
+        run: sudo apt-get update -q && sudo apt-get install -yq python3-venv libmpv2 ffmpeg libegl1 libxkbcommon0
       - name: Test install.sh, run, uninstall
         run: |
-          tar czf Shoebox-Linux.tar.gz -C dist Shoebox
-          SHOEBOX_TARBALL=$PWD/Shoebox-Linux.tar.gz sh install.sh
+          git archive --format=tar.gz --prefix=shoebox/ -o /tmp/src.tar.gz HEAD
+          SHOEBOX_SOURCE=/tmp/src.tar.gz sh install.sh
           ~/.local/bin/shoebox --selftest "$PWD/selftest.txt"; code=$?
           cat selftest.txt
           test $code -eq 0
           sh install.sh --uninstall
           test ! -e ~/.local/share/shoebox
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Shoebox-Linux
-          path: Shoebox-Linux.tar.gz
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -157,4 +146,3 @@ jobs:
             Shoebox-Windows/Shoebox-Setup.exe
             Shoebox-Windows/Shoebox-Windows.zip
             Shoebox-macOS/Shoebox-macOS.dmg
-            Shoebox-Linux/Shoebox-Linux.tar.gz
