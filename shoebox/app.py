@@ -22,7 +22,8 @@ try:
 except (ImportError, OSError):  # no libmpv: photos still work, videos open in their own app
     mpv = None
 from PIL import Image, ImageOps
-from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (QAbstractListModel, QEvent, QModelIndex, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal,
+                            QVariantAnimation)
 from PySide6.QtGui import (QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut,
                            QTransform)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
@@ -292,10 +293,18 @@ class Mpv(QOpenGLWidget):
             self.ctx.render(flip_y=True, opengl_fbo={"w": int(self.width() * r), "h": int(self.height() * r),
                                                       "fbo": self.defaultFramebufferObject()})
 
-    def play(self, p: Path):
+    def play(self, p: Path, mute: bool = False):
         if self.m:
+            self.m.mute = mute
             self.m.command("loadfile", str(p), "replace")
             self.m.pause = False
+
+    def toggle_mute(self) -> bool:
+        """Returns whether it's muted now."""
+        if self.m:
+            self.m.mute = not self.m.mute
+            return bool(self.m.mute)
+        return False
 
     def stop(self):
         self.key("stop")
@@ -324,15 +333,26 @@ class Picture(QLabel):
         self.img: QImage | None = None
         self.zoom, self.cx, self.cy = 1.0, 0.5, 0.5
         self.drag = None
+        self.old: QImage | None = None  # fading out (slideshow)
+        self.fade = QVariantAnimation(self)
+        self.fade.setDuration(700)
+        self.fade.setStartValue(0.0)
+        self.fade.setEndValue(1.0)
+        self.fade.valueChanged.connect(lambda _v: self.update())
+        self.fade.finished.connect(self.faded)
 
     def setText(self, text):
         self.img = None
         super().setText(text)
 
-    def set_image(self, img: QImage, keep_view: bool = False):
+    def set_image(self, img: QImage, keep_view: bool = False, fade: bool = False):
         if not keep_view:
             self.zoom, self.cx, self.cy = 1.0, 0.5, 0.5
         super().setText("")
+        if fade and self.img is not None and self.img is not img:
+            self.old = self.img
+            self.fade.stop()
+            self.fade.start()
         self.img = img
         self.clamp()
         self.update()
@@ -366,17 +386,31 @@ class Picture(QLabel):
         self.clamp()
         self.update()
 
+    def faded(self):
+        self.old = None
+        self.update()
+
+    def draw(self, painter: QPainter, img: QImage, zoom: float, cx: float, cy: float):
+        s = min(self.width() / img.width(), self.height() / img.height()) * zoom
+        painter.save()
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.scale(s, s)
+        painter.translate(-cx * img.width(), -cy * img.height())
+        painter.drawImage(0, 0, img)
+        painter.restore()
+
     def paintEvent(self, e):
         if self.img is None:
             return super().paintEvent(e)
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#000"))
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        s = self.scale()
-        painter.translate(self.width() / 2, self.height() / 2)
-        painter.scale(s, s)
-        painter.translate(-self.cx * self.img.width(), -self.cy * self.img.height())
-        painter.drawImage(0, 0, self.img)
+        if self.old is not None:  # slideshow: the last photo fades out as this one fades in
+            a = self.fade.currentValue() or 0.0
+            painter.setOpacity(1 - a)
+            self.draw(painter, self.old, 1.0, 0.5, 0.5)
+            painter.setOpacity(a)
+        self.draw(painter, self.img, self.zoom, self.cx, self.cy)
         painter.end()
 
     def resizeEvent(self, e):
@@ -458,6 +492,7 @@ class Viewer(QWidget):
         self.slides.setSingleShot(True)
         self.slides.timeout.connect(self.next_slide)
         self.sliding = False
+        self.slide_mute = True  # videos in a slideshow start muted; v turns the sound on
 
     def show_at(self, paths: list[Path], i: int, meta: dict, jpgs: dict):
         self.paths, self.i, self.meta, self.jpgs = paths, i, meta, jpgs
@@ -479,7 +514,7 @@ class Viewer(QWidget):
         elif library.kind(p) == "video":
             self.image = None
             self.stack.setCurrentWidget(self.video)
-            self.video.play(p)
+            self.video.play(p, mute=self.sliding and self.slide_mute)
         elif library.kind(p) == "audio":  # plays through mpv; the page shows its name (and cover, if any)
             self.image = None
             self.stack.setCurrentWidget(self.pic)
@@ -547,11 +582,16 @@ class Viewer(QWidget):
         if self.full and self.full[0] == p and not full:
             return  # already sharper
         self.image = img
-        self.pic.set_image(img, keep_view=full or self.pic.zoom > 1)
+        self.pic.set_image(img, keep_view=full or self.pic.zoom > 1, fade=self.sliding and self.shown != p)
+        self.shown = p
+
+    shown: Path | None = None  # whose picture is on screen (the sharp version of the same one doesn't fade)
 
     def fit(self):
         if self.image is not None:
-            self.pic.set_image(self.image)
+            p = self.paths[self.i] if self.paths else None
+            self.pic.set_image(self.image, fade=self.sliding and self.shown != p)
+            self.shown = p
 
     def zoom_changed(self):
         """Zoomed in past what the screen-sized picture can show: decode the whole photo, once."""
@@ -667,6 +707,11 @@ class Viewer(QWidget):
                 self.slides.stop() if self.video.m and self.video.m.pause else self.time_slide()
         elif video and k in (Qt.Key_Right, Qt.Key_Left):
             self.video.key("seek", "5" if k == Qt.Key_Right else "-5")
+        elif video and t == "v":  # sound on/off (a slideshow remembers it for the next videos)
+            muted = self.video.toggle_mute()
+            if self.sliding:
+                self.slide_mute = muted
+            self.update_info()
         elif video and t in (",", "."):
             self.video.key("seek", "-1" if t == "," else "1")
         elif command_of(e) in ("move", "undo"):
@@ -821,7 +866,7 @@ class Shoebox(QWidget):
             return
         if not self.isFullScreen():
             self.was_full = False
-            self.showFullScreen()
+            self.full_screen()
         self.viewer.start_slides()
 
     # ---- open with: Shoebox as the app a photo opens in (shoebox photo.jpg, or the system's Open with)
@@ -1315,18 +1360,26 @@ class Shoebox(QWidget):
         self.grid.setCurrentIndex(self.items.index(self.viewer.i))
         self.pages.setCurrentIndex(0)
         if self.isFullScreen() and not self.was_full:
-            self.showNormal()
+            self.leave_full()
         self.grid.setFocus()
         self.show_keys()
 
     def toggle_full(self):
         if self.isFullScreen():
-            self.showNormal()
+            self.leave_full()
         else:
             self.was_full = self.pages.currentWidget() is not self.viewer
-            self.showFullScreen()
+            self.full_screen()
 
     was_full = False
+    was_max = True  # before full screen: maximized (back to that) or a window
+
+    def full_screen(self):
+        self.was_max = self.isMaximized()
+        self.showFullScreen()
+
+    def leave_full(self):
+        self.showMaximized() if self.was_max else self.showNormal()
     side = "folders"  # where you are: "folders" or "photos" (d shows the folder, or the photo selected)
 
     def current_path(self) -> Path | None:
@@ -1393,7 +1446,8 @@ class Shoebox(QWidget):
             video = self.viewer.paths and library.kind(self.viewer.paths[self.viewer.i]) in ("video", "audio")
             keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
             if video:
-                keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s")]
+                muted = bool(self.viewer.video.m and self.viewer.video.m.mute)
+                keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s"), ("v", "sound on" if muted else "mute")]
             else:
                 keys += [("ctrl + −", "zoom"), ("ctrl ←→↑↓", "move")] if self.viewer.pic.zoom > 1 else [("ctrl +", "zoom")]
                 keys += [("t", "turn")]

@@ -83,7 +83,8 @@ when it was taken, camera, lens, aperture, shutter, ISO, focal length, flash, GP
 frame rate, codecs. `i` again hides it; it stays open from photo to photo.
 
 **Slideshow (p):** full screen from the photo you're on (or the start of the folder), 4 s a photo; videos and songs
-play to their end. Space pauses, `p` or Esc stops.
+play to their end, muted (`v` turns the sound on for the rest of the slideshow). Photos fade into each other.
+Space pauses, `p` or Esc stops. Leaving full screen goes back to maximized (or the window size it had).
 
 **Organizing** (logged in `organize-log.jsonl` in the settings folder; `z` or Ctrl+Z undoes the last one, again for
 the one before):
