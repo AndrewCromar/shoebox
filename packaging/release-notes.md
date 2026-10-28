@@ -1,5 +1,9 @@
 **Shoebox** is a simple photo, video and audio viewer: your folders by year, month and trip on the left,
-thumbnails on the right, full size with Enter. It only looks; it never changes your photos.
+thumbnails on the right, full size with Enter. It only looks; it never changes your photos unless you ask.
+
+### What's new in 1.3
+- **Turn (t):** a quarter turn clockwise, on a thumbnail or full size; press again for more. Saved in the file:
+  JPEGs keep every pixel (only the orientation tag changes, like a phone does).
 
 ### What's new in 1.2
 - **Duplicates (Shift+D):** find the same picture more than once in an event, a month or a year, even renamed,
