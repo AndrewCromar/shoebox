@@ -1,6 +1,10 @@
 **Shoebox** is a simple photo, video and audio viewer: your folders by year, month and trip on the left,
 thumbnails on the right, full size with Enter. It only looks; it never changes your photos.
 
+### What's new in 1.1.1
+- **Linux:** videos play again. Linux now installs from the source with its own Python environment and uses
+  your system's mpv and ffmpeg (the old bundle clashed with newer system libraries), and **u** updates it.
+
 ### What's new in 1.1
 - **Ingest (i):** bring a folder (a friend's upload, a phone dump) into an event without doubles. Each photo is
   marked NEW, HAVE or MAYBE by comparing the pictures themselves, so renamed, resized, re-saved or re-dated copies

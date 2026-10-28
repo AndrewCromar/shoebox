@@ -2,7 +2,7 @@
 
 check() returns the newer release, or None (up to date, offline, or the repo is private).
 install() gets it: on Windows it downloads the installer and runs it (it closes Shoebox, updates, and opens it
-again); elsewhere it opens the release page to download.
+again); a Linux install.sh install runs install.sh again; elsewhere it opens the release page.
 """
 import json
 import os
@@ -46,9 +46,19 @@ def check(timeout: float = 8.0) -> dict | None:
             "setup": assets.get(SETUP)}
 
 
+INSTALL_SH = f"https://raw.githubusercontent.com/{REPO}/main/install.sh"
+
+
+def linux_installed() -> Path | None:
+    """The install.sh launcher, if this Shoebox was installed with install.sh (~/.local/share/shoebox/src)."""
+    here = Path(__file__).resolve().parent.parent  # .../shoebox/src
+    launcher = here.parent / "shoebox"
+    return launcher if not system.WINDOWS and not system.MAC and here.name == "src" and launcher.exists() else None
+
+
 def can_self_update(rel: dict) -> bool:
-    """Only an installed Windows app updates itself; the rest opens the download page."""
-    return system.WINDOWS and system.FROZEN and bool(rel.get("setup"))
+    """The Windows installer and Linux install.sh update themselves; a Mac (or a git checkout) opens the page."""
+    return (system.WINDOWS and system.FROZEN and bool(rel.get("setup"))) or bool(linux_installed())
 
 
 def install(rel: dict, progress=None) -> bool:
@@ -57,6 +67,11 @@ def install(rel: dict, progress=None) -> bool:
     if not can_self_update(rel):
         system.open_path_url(rel["page"])
         return False
+    if linux_installed():  # run install.sh again (it fetches the latest release), then open Shoebox again
+        cmd = f'sleep 1; (curl -fsSL {INSTALL_SH} || wget -qO- {INSTALL_SH}) | sh && exec "{linux_installed()}"'
+        subprocess.Popen(["sh", "-c", cmd], start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
     dest = Path(tempfile.gettempdir()) / f"Shoebox-Setup-{rel['version']}.exe"
     req = urllib.request.Request(rel["setup"], headers={"User-Agent": f"Shoebox/{__version__}"})
     with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
