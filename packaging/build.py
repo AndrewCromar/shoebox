@@ -50,6 +50,20 @@ def main():
     args.append(str(HERE / "shoebox_main.py"))
     print(" ".join(args))
     subprocess.run(args, check=True, cwd=ROOT)
+    if sys.platform == "darwin":
+        open_with_mac(ROOT / "dist" / "Shoebox.app")
+
+
+def open_with_mac(app: Path):
+    """List Shoebox under Open With for pictures, videos and sound (Finder's Get Info can make it the default),
+    then sign the app again (ad hoc, as PyInstaller did), since its Info.plist changed."""
+    import plistlib
+    info = app / "Contents" / "Info.plist"
+    d = plistlib.loads(info.read_bytes())
+    d["CFBundleDocumentTypes"] = [{"CFBundleTypeName": "Media", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+                                   "LSItemContentTypes": ["public.image", "public.movie", "public.audio"]}]
+    info.write_bytes(plistlib.dumps(d))
+    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True)
 
 
 if __name__ == "__main__":

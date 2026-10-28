@@ -74,7 +74,7 @@ fi
 cat > "$APP/shoebox" <<LAUNCH
 #!/bin/sh
 # Start Shoebox (installed by install.sh). MALLOC_ARENA_MAX: memory from big photos goes back to the system.
-cd "$APP/src" && MALLOC_ARENA_MAX=2 exec "$APP/venv/bin/python" -m shoebox "\$@"
+PYTHONPATH="$APP/src" MALLOC_ARENA_MAX=2 exec "$APP/venv/bin/python" -m shoebox "\$@"
 LAUNCH
 chmod +x "$APP/shoebox"
 ln -sf "$APP/shoebox" "$BIN/shoebox"
@@ -86,7 +86,8 @@ Type=Application
 Name=Shoebox
 GenericName=Photo and video viewer
 Comment=Browse photos, videos and audio by year, month and trip
-Exec=$APP/shoebox
+Exec=$APP/shoebox %f
+MimeType=image/jpeg;image/png;image/heic;image/heif;image/webp;image/gif;image/bmp;image/tiff;video/mp4;video/quicktime;video/x-matroska;video/webm;video/x-msvideo;video/3gpp;video/mp2t;audio/mpeg;audio/mp4;audio/x-m4a;audio/x-wav;audio/flac;audio/ogg;audio/opus;audio/aac;audio/x-aiff;
 Icon=shoebox
 Terminal=false
 Categories=Graphics;Viewer;

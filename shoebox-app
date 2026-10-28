@@ -1,4 +1,6 @@
 #!/bin/sh
 # Start Shoebox (photo, video and audio viewer).
 # MALLOC_ARENA_MAX: fewer per-thread heaps, so memory from decoding big photos goes back to the system.
-cd "$(dirname "$0")" && MALLOC_ARENA_MAX=2 exec .venv/bin/python -m shoebox "$@"
+# PYTHONPATH, not cd: "shoebox-app photo.jpg" with a path relative to where you are still works.
+D="$(cd "$(dirname "$0")" && pwd)"
+PYTHONPATH="$D" MALLOC_ARENA_MAX=2 exec "$D/.venv/bin/python" -m shoebox "$@"

@@ -75,6 +75,30 @@ renamed, resized or re-saved. Each set is shown side by side; the best copy (mos
 marked KEEP, the rest TRASH. ←→ picks a copy, space switches it, Enter does the set (to the system trash /
 Recycle Bin, so it can be restored), ↑↓ moves between sets, `z` puts the last set back. Logged in `dupes-log.jsonl`.
 
+**Zoom:** full size, Ctrl `+` (or `=`) zooms in, Ctrl `−` (or `_`) out, Ctrl `0` fits it again; Ctrl ←→↑↓ or dragging
+moves around. Ctrl+wheel zooms too. Zoomed in, the whole photo is decoded so it stays sharp.
+
+**Info (i, full size):** a panel with the file (name, folder, size, date) and what the camera wrote: picture size,
+when it was taken, camera, lens, aperture, shutter, ISO, focal length, flash, GPS. For videos: length, resolution,
+frame rate, codecs. `i` again hides it; it stays open from photo to photo.
+
+**Slideshow (p):** full screen from the photo you're on (or the start of the folder), 4 s a photo; videos and songs
+play to their end. Space pauses, `p` or Esc stops.
+
+**Organizing** (logged in `organize-log.jsonl` in the settings folder; `z` or Ctrl+Z undoes the last one, again for
+the one before):
+- `n` (folders) makes a **new event**: asks the month (2026-06) and the name, makes `2026/06/Name/`.
+- `F2` or `e` (folders) **renames** the event folder. (Anything that points at files inside, like a video project's
+  links, needs updating after.)
+- `m` (photos or full size) **moves** to another event: type a few letters of it, Enter. Shift or Ctrl + arrows/click
+  picks several photos first. A name already used there gets " (2)".
+
+**Open with:** Shoebox can be the app a photo, video or song opens in. `shoebox photo.jpg` (or double-clicking it once
+Shoebox is chosen) shows it full size with the rest of its folder around it. If it's outside your media folder,
+Shoebox just looks: the folder isn't added to the library. To make it the default: Linux, right-click a photo →
+Open With → Shoebox (tick "remember"), or System Settings → Default Applications; Windows, right-click → Open with →
+Choose another app → Shoebox, "Always"; Mac, Get Info → Open with → Shoebox → Change All.
+
 **Turn (t):** a quarter turn clockwise, on a thumbnail or full size; press again for more. It's saved in the file. A JPEG
 keeps every pixel (only its orientation tag changes, like a phone does), other pictures are saved turned. The file keeps its date.
 

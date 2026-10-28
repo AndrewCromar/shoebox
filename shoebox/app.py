@@ -5,6 +5,7 @@ Read-only: it never moves, renames or edits a photo.
 """
 import json
 import locale
+import re
 import shutil
 from collections import OrderedDict
 import os
@@ -21,15 +22,16 @@ try:
 except (ImportError, OSError):  # no libmpv: photos still work, videos open in their own app
     mpv = None
 from PIL import Image, ImageOps
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QIcon, QColor, QFont, QImage, QKeySequence, QOpenGLContext, QPainter, QPixmap, QShortcut,
                            QTransform)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDialog, QPushButton, QHBoxLayout, QLabel, QLineEdit, QListView, QSplitter,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QFileDialog, QPushButton, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget,
+                               QListWidgetItem, QSplitter,
                                QStackedWidget, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
-from . import __version__, library, rotate, thumbs, updates
+from . import __version__, info, library, organize, rotate, thumbs, updates
 
 CONFIG = system.config_dir() / "settings.json"
 ICON = Path(__file__).resolve().parent.parent / "assets" / "shoebox.svg"
@@ -77,6 +79,15 @@ QScrollBar:vertical {{ background: {C['bg']}; width: 10px; }}
 QScrollBar::handle:vertical {{ background: {C['line']}; min-height: 30px; border-radius: 4px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 """
+
+
+COMMANDS = {"n": "new", "e": "rename", "m": "move", "z": "undo"}  # organize.py; F2 renames too
+
+
+def command_of(e) -> str | None:
+    if e.key() == Qt.Key_F2:
+        return "rename"
+    return COMMANDS.get(e.text()) if not e.modifiers() & (Qt.ControlModifier | Qt.AltModifier) else None
 
 
 def span(text, color="fg", bold=False) -> str:
@@ -207,6 +218,7 @@ class Cell(QStyledItemDelegate):
 class Grid(QListView):
     open_item = Signal(int)
     to_tree = Signal()
+    command = Signal(str)
 
     def __init__(self, model: Items):
         super().__init__()
@@ -217,7 +229,7 @@ class Grid(QListView):
         self.setResizeMode(QListView.Adjust)
         self.setMovement(QListView.Static)
         self.setUniformItemSizes(True)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)  # one at a time until there's a use for more
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)  # shift / ctrl pick several to move (m)
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(40)
         self.setSpacing(0)
@@ -241,6 +253,8 @@ class Grid(QListView):
             self.to_tree.emit()
         elif e.key() == Qt.Key_Left and self.currentIndex().row() == 0:
             self.to_tree.emit()
+        elif command_of(e):
+            self.command.emit(command_of(e))
         elif e.text() in ("+", "="):
             self.zoom(30)
         elif e.text() == "-":
@@ -299,39 +313,151 @@ class Mpv(QOpenGLWidget):
             self.m.pause = not self.m.pause
 
 
-class Viewer(QWidget):
-    """One photo or video, filling the window. ←→ next/previous, Esc back to the grid."""
-    loaded = Signal(object, object)  # (path, QImage or error text)
-    back = Signal()
-    changed = Signal()  # another photo/video: the keys bar follows
+class Picture(QLabel):
+    """The photo, fitted to the window, or zoomed in (Ctrl +/−) and moved around (Ctrl arrows, or drag).
+    zoom is relative to fitting: 1 = the whole photo. (cx, cy): the middle of the view, as a fraction of the photo.
+    Text (loading…, a song's name) shows like a normal label."""
+    zoomed = Signal()
 
     def __init__(self):
         super().__init__()
-        v = QVBoxLayout(self)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(0)
+        self.img: QImage | None = None
+        self.zoom, self.cx, self.cy = 1.0, 0.5, 0.5
+        self.drag = None
+
+    def setText(self, text):
+        self.img = None
+        super().setText(text)
+
+    def set_image(self, img: QImage, keep_view: bool = False):
+        if not keep_view:
+            self.zoom, self.cx, self.cy = 1.0, 0.5, 0.5
+        super().setText("")
+        self.img = img
+        self.clamp()
+        self.update()
+
+    def scale(self) -> float:
+        """Screen pixels per photo pixel."""
+        return min(self.width() / self.img.width(), self.height() / self.img.height()) * self.zoom
+
+    def clamp(self):
+        """Keep the photo filling the view where it's bigger than it; centred where it's smaller."""
+        if self.img is None:
+            return
+        s = self.scale()
+        for attr, view, size in (("cx", self.width(), self.img.width()), ("cy", self.height(), self.img.height())):
+            half = view / (2 * s * size)
+            setattr(self, attr, 0.5 if half >= 0.5 else min(1 - half, max(half, getattr(self, attr))))
+
+    def set_zoom(self, z: float):
+        self.zoom = max(1.0, min(z, 40.0))
+        self.clamp()
+        self.update()
+        self.zoomed.emit()
+
+    def pan(self, dx: float, dy: float):
+        """Move the view by a fraction of the view's size."""
+        if self.img is None or self.zoom <= 1:
+            return
+        s = self.scale()
+        self.cx += dx * self.width() / (s * self.img.width())
+        self.cy += dy * self.height() / (s * self.img.height())
+        self.clamp()
+        self.update()
+
+    def paintEvent(self, e):
+        if self.img is None:
+            return super().paintEvent(e)
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#000"))
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        s = self.scale()
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.scale(s, s)
+        painter.translate(-self.cx * self.img.width(), -self.cy * self.img.height())
+        painter.drawImage(0, 0, self.img)
+        painter.end()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.clamp()
+
+    def mousePressEvent(self, e):
+        if self.img is not None and self.zoom > 1 and e.button() == Qt.LeftButton:
+            self.drag = e.position()
+            self.setCursor(Qt.ClosedHandCursor)
+        else:
+            super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self.drag is not None:
+            d = e.position() - self.drag
+            self.drag = e.position()
+            self.pan(-d.x() / self.width(), -d.y() / self.height())
+
+    def mouseReleaseEvent(self, e):
+        self.drag = None
+        self.unsetCursor()
+
+
+class Viewer(QWidget):
+    """One photo or video, filling the window. ←→ next/previous, Esc back to the grid. Ctrl +/− zoom, Ctrl arrows
+    move around, i the info panel (info.py), p a slideshow."""
+    loaded = Signal(object, object, bool)  # (path, QImage or error text, full size)
+    described = Signal(object, object)  # (path, info rows)
+    back = Signal()
+    changed = Signal()  # another photo/video: the keys bar follows
+    command = Signal(str)
+    SLIDE_SECONDS = 4
+
+    def __init__(self):
+        super().__init__()
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        main = QVBoxLayout()
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(0)
+        h.addLayout(main, 1)
         self.stack = QStackedWidget()
-        self.pic = QLabel()
+        self.pic = Picture()
         self.pic.setAlignment(Qt.AlignCenter)
         self.pic.setStyleSheet("background:#000;")
         self.pic.setMinimumSize(1, 1)
+        self.pic.zoomed.connect(self.zoom_changed)
         self.video = Mpv()
         self.stack.addWidget(self.pic)
         self.stack.addWidget(self.video)
-        v.addWidget(self.stack, 1)
+        main.addWidget(self.stack, 1)
         self.info = label(color="mid")
         self.info.setContentsMargins(16, 8, 16, 8)
-        v.addWidget(self.info)
+        main.addWidget(self.info)
+        self.panel = label(color="mid", size=10)  # i: what the file and the camera say
+        self.panel.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.panel.setWordWrap(True)
+        self.panel.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.panel.setContentsMargins(18, 18, 18, 18)
+        self.panel.setFixedWidth(360)
+        self.panel.setStyleSheet(f"background:{C['panel']}; color:{C['mid']}; font-size:10pt;")
+        self.panel.hide()
+        h.addWidget(self.panel)
         self.paths: list[Path] = []
         self.i = 0
         self.image: QImage | None = None
         self.cache: dict[Path, QImage] = {}
+        self.full: tuple[Path, QImage] | None = None  # the current photo at full size, once zoomed in
         self.loaded.connect(self.got)
+        self.described.connect(self.got_info)
         self.jpgs: dict[Path, Path] = {}
         self.cv = threading.Condition()
-        self.queue: list[Path] = []
+        self.queue: list[tuple[Path, bool]] = []
         self.size_px = QSize(1600, 1000)
         threading.Thread(target=self.loader, daemon=True).start()
+        self.slides = QTimer(self)  # p: the slideshow
+        self.slides.setSingleShot(True)
+        self.slides.timeout.connect(self.next_slide)
+        self.sliding = False
 
     def show_at(self, paths: list[Path], i: int, meta: dict, jpgs: dict):
         self.paths, self.i, self.meta, self.jpgs = paths, i, meta, jpgs
@@ -339,7 +465,10 @@ class Viewer(QWidget):
 
     def show_current(self):
         p = self.paths[self.i]
+        self.full = None
         self.update_info()
+        if self.panel.isVisible():
+            self.ask_info()
         if library.kind(p) in ("video", "audio") and not self.video.m:
             self.image = None
             self.stack.setCurrentWidget(self.pic)
@@ -363,7 +492,7 @@ class Viewer(QWidget):
             self.video.stop()
             self.stack.setCurrentWidget(self.pic)
             if p in self.cache:
-                self.got(p, self.cache[p])
+                self.got(p, self.cache[p], False)
             elif self.jpgs.get(p):  # the thumbnail at once, sharp version when it's decoded
                 self.image = QImage(str(self.jpgs[p]))
                 self.fit()
@@ -373,10 +502,12 @@ class Viewer(QWidget):
         # only this one, then its neighbours: pictures flipped past quickly are never decoded
         near = [self.paths[k] for k in (self.i, self.i + 1, self.i - 1) if 0 <= k < len(self.paths)]
         self.want([x for x in near if library.kind(x) == "image" and x not in self.cache])
+        if self.sliding:
+            self.time_slide()
 
-    def want(self, paths: list[Path]):
+    def want(self, paths: list[Path], full: bool = False):
         with self.cv:
-            self.queue = paths
+            self.queue = [(p, full) for p in paths]
             self.size_px = self.size() * self.devicePixelRatio()
             self.cv.notify()
 
@@ -386,48 +517,117 @@ class Viewer(QWidget):
             with self.cv:
                 while not self.queue:
                     self.cv.wait()
-                p, size = self.queue.pop(0), self.size_px
+                (p, full), size = self.queue.pop(0), self.size_px
             try:
                 with Image.open(p) as im:
-                    im.draft("RGB", (size.width(), size.height()))
+                    if not full:
+                        im.draft("RGB", (size.width(), size.height()))
                     im = ImageOps.exif_transpose(im).convert("RGB")
-                    im.thumbnail((max(size.width(), 400), max(size.height(), 400)), Image.LANCZOS)
+                    if not full:
+                        im.thumbnail((max(size.width(), 400), max(size.height(), 400)), Image.LANCZOS)
                     q = QImage(im.tobytes(), im.width, im.height, im.width * 3, QImage.Format_RGB888).copy()
             except Exception as ex:
                 q = f"can't open {p.name}: {ex}"
             thumbs.give_back()
-            self.loaded.emit(p, q)
+            self.loaded.emit(p, q, full)
 
-    def got(self, p, img):
+    def got(self, p, img, full=False):
         if isinstance(img, QImage):
-            self.cache[p] = img
-            if len(self.cache) > 4:
-                self.cache.pop(next(iter(self.cache)))
+            if full:
+                self.full = (p, img)
+            else:
+                self.cache[p] = img
+                if len(self.cache) > 4:
+                    self.cache.pop(next(iter(self.cache)))
         if not self.paths or p != self.paths[self.i]:
             return
         if isinstance(img, str):
             self.pic.setText(span(img, "dim"))
             return
+        if self.full and self.full[0] == p and not full:
+            return  # already sharper
         self.image = img
-        self.fit()
+        self.pic.set_image(img, keep_view=full or self.pic.zoom > 1)
 
     def fit(self):
         if self.image is not None:
-            pm = QPixmap.fromImage(self.image)
-            pm.setDevicePixelRatio(self.devicePixelRatio())
-            target = self.pic.size() * self.devicePixelRatio()
-            self.pic.setPixmap(pm.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.pic.set_image(self.image)
 
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        QTimer.singleShot(0, self.fit)
+    def zoom_changed(self):
+        """Zoomed in past what the screen-sized picture can show: decode the whole photo, once."""
+        p = self.paths[self.i] if self.paths else None
+        if p and self.pic.img is not None and not (self.full and self.full[0] == p) \
+                and self.pic.scale() * self.devicePixelRatio() > 1.05:  # past one screen pixel per pixel
+            self.want([p], full=True)
+        self.update_info()
+
+    def zoom_by(self, f: float):
+        if self.stack.currentWidget() is self.pic and self.pic.img is not None:
+            self.pic.set_zoom(1.0 if f == 0 else self.pic.zoom * f)
 
     def update_info(self):
         p = self.paths[self.i]
         when = taken(p, self.meta.get(p, {}))
+        z = f"   ·   zoom ×{self.pic.zoom:.1f}" if self.pic.img is not None and self.pic.zoom > 1 else ""
         self.info.setText(span(p.name, "fg", True) + span(f"   {self.i + 1} / {len(self.paths)}   ", "mid")
-                          + span(f"{p.parent.name}   ·   {when}", "dim"))
+                          + span(f"{p.parent.name}   ·   {when}", "dim") + span(z, "acc")
+                          + (span("   ·   slideshow" + (" (paused)" if not self.slides.isActive()
+                                                         and library.kind(p) == "image" else ""), "acc")
+                             if self.sliding else ""))
         self.changed.emit()
+
+    # ---- i: the info panel
+    def toggle_panel(self):
+        self.panel.setVisible(not self.panel.isVisible())
+        if self.panel.isVisible() and self.paths:
+            self.ask_info()
+        QTimer.singleShot(0, self.pic.clamp)
+
+    def ask_info(self):
+        p = self.paths[self.i]
+        self.panel.setText(span("reading…", "dim"))
+        threading.Thread(target=lambda: self.described.emit(p, info.describe(p)), daemon=True).start()
+
+    def got_info(self, p, rows):
+        if not self.paths or p != self.paths[self.i]:
+            return
+        html = []
+        for k, v in rows:
+            if not v:
+                html.append(("<br>" if html else "") + span(k, "acc", True))
+            else:
+                html.append(span(k, "dim") + "<br>&nbsp;&nbsp;" + span(v, "fg"))
+        self.panel.setText("<br>".join(html))
+
+    # ---- p: the slideshow
+    def start_slides(self):
+        self.sliding = True
+        self.time_slide()
+        self.update_info()
+
+    def stop_slides(self):
+        self.sliding = False
+        self.slides.stop()
+        self.update_info()
+
+    def time_slide(self):
+        """Photos stay SLIDE_SECONDS; a video or song plays to its end."""
+        p = self.paths[self.i]
+        d = self.meta.get(p, {}).get("duration") if library.kind(p) in ("video", "audio") else None
+        self.slides.start(int(((d + 0.5) if d else self.SLIDE_SECONDS) * 1000))
+
+    def next_slide(self):
+        if not self.sliding:
+            return
+        if self.i >= len(self.paths) - 1:
+            self.stop_slides()
+            return
+        self.i += 1
+        self.show_current()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        QTimer.singleShot(0, self.pic.clamp)
 
     def step(self, d: int):
         if self.paths:
@@ -435,9 +635,17 @@ class Viewer(QWidget):
             self.show_current()
 
     def keyPressEvent(self, e):
-        k, t = e.key(), e.text()
+        k, t, ctrl = e.key(), e.text(), bool(e.modifiers() & Qt.ControlModifier)
         video = library.kind(self.paths[self.i]) in ("video", "audio") if self.paths else False
-        if k in (Qt.Key_Right, Qt.Key_PageDown) and not (video and e.modifiers() & Qt.ShiftModifier):
+        if ctrl and k in (Qt.Key_Plus, Qt.Key_Equal):
+            self.zoom_by(1.5)
+        elif ctrl and k in (Qt.Key_Minus, Qt.Key_Underscore):
+            self.zoom_by(1 / 1.5)
+        elif ctrl and k == Qt.Key_0:
+            self.zoom_by(0)
+        elif ctrl and k in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+            self.pic.pan({Qt.Key_Left: -0.15, Qt.Key_Right: 0.15}.get(k, 0), {Qt.Key_Up: -0.15, Qt.Key_Down: 0.15}.get(k, 0))
+        elif k in (Qt.Key_Right, Qt.Key_PageDown) and not (video and e.modifiers() & Qt.ShiftModifier):
             self.step(1)
         elif k in (Qt.Key_Left, Qt.Key_PageUp) and not (video and e.modifiers() & Qt.ShiftModifier):
             self.step(-1)
@@ -447,13 +655,25 @@ class Viewer(QWidget):
         elif k == Qt.Key_End:
             self.i = len(self.paths) - 1
             self.show_current()
+        elif k == Qt.Key_Space and self.sliding and not video:
+            if self.slides.isActive():
+                self.slides.stop()
+            else:
+                self.time_slide()
+            self.update_info()
         elif k == Qt.Key_Space and video:
             self.video.toggle()
+            if self.sliding:  # paused video: the slideshow waits
+                self.slides.stop() if self.video.m and self.video.m.pause else self.time_slide()
         elif video and k in (Qt.Key_Right, Qt.Key_Left):
             self.video.key("seek", "5" if k == Qt.Key_Right else "-5")
         elif video and t in (",", "."):
             self.video.key("seek", "-1" if t == "," else "1")
+        elif command_of(e) in ("move", "undo"):
+            self.command.emit(command_of(e))
         elif k in (Qt.Key_Escape, Qt.Key_Backspace, Qt.Key_Return, Qt.Key_Enter):
+            if self.sliding:
+                self.stop_slides()
             self.video.stop()
             self.back.emit()
         else:
@@ -464,7 +684,10 @@ class Viewer(QWidget):
         self.back.emit()
 
     def wheelEvent(self, e):
-        self.step(-1 if e.angleDelta().y() > 0 else 1)
+        if e.modifiers() & Qt.ControlModifier:
+            self.zoom_by(1.25 if e.angleDelta().y() > 0 else 1 / 1.25)
+        else:
+            self.step(-1 if e.angleDelta().y() > 0 else 1)
 
 
 # ---------------------------------------------------------------- window
@@ -486,6 +709,7 @@ class Shoebox(QWidget):
         browse.setHandleWidth(1)
         self.tree = Tree()
         self.tree.to_grid.connect(lambda: self.grid_focus())
+        self.tree.command.connect(self.command)
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(2)
         self.tree.setIndentation(16)
@@ -518,6 +742,7 @@ class Shoebox(QWidget):
         self.items = Items()
         self.grid = Grid(self.items)
         self.grid.open_item.connect(self.open_viewer)
+        self.grid.command.connect(self.command)
         self.grid.to_tree.connect(lambda: self.tree.setFocus())
         self.grid.selectionModel().currentChanged.connect(lambda *_: self.show_keys())
         rv.addWidget(self.grid, 1)
@@ -534,6 +759,7 @@ class Shoebox(QWidget):
         self.viewer = Viewer()
         self.viewer.back.connect(self.close_viewer)
         self.viewer.changed.connect(self.show_keys)
+        self.viewer.command.connect(self.command)
         self.pages.addWidget(self.viewer)
 
         self.keys = label(color="dim", size=10)
@@ -562,9 +788,11 @@ class Shoebox(QWidget):
         QShortcut(QKeySequence("/"), self, self.start_search)
         QShortcut(QKeySequence("Ctrl+F"), self, self.start_search)
         QShortcut(QKeySequence("U"), self, self.update_now)
-        QShortcut(QKeySequence("I"), self, self.open_ingest)
+        QShortcut(QKeySequence("I"), self, self.key_i)
+        QShortcut(QKeySequence("P"), self, self.slideshow)
         QShortcut(QKeySequence("Shift+D"), self, self.open_dupes)
         QShortcut(QKeySequence("T"), self, self.turn)
+        QShortcut(QKeySequence("Ctrl+Z"), self, lambda: self.command("undo"))
         self.ingest = self.dupes = None
         self.update_found.connect(self.got_update)
         self.release = None
@@ -572,6 +800,195 @@ class Shoebox(QWidget):
         self.tree.setFocus()
         if settings().get("check_updates", True) and not updates.is_disabled():
             self.check_updates()
+
+    def key_i(self):
+        """i: the info panel when viewing, else Ingest."""
+        if self.pages.currentWidget() is self.viewer:
+            self.viewer.toggle_panel()
+        else:
+            self.open_ingest()
+
+    def slideshow(self):
+        """p: full screen, one after another, from the photo you're on (or the start of the folder)."""
+        if self.pages.currentWidget() is self.viewer:
+            if self.viewer.sliding:
+                self.viewer.stop_slides()
+                return
+        elif self.pages.currentIndex() == 0 and self.items.paths:
+            i = self.grid.currentIndex()
+            self.open_viewer(i.row() if self.side == "photos" and i.isValid() else 0)
+        else:
+            return
+        if not self.isFullScreen():
+            self.was_full = False
+            self.showFullScreen()
+        self.viewer.start_slides()
+
+    # ---- open with: Shoebox as the app a photo opens in (shoebox photo.jpg, or the system's Open with)
+    def open_file(self, p: Path):
+        """Show p full size with the rest of its folder around it. In the library, its folder is selected in the
+        tree as usual; outside it, Shoebox just looks (the folder isn't added to the library or remembered)."""
+        p = p.resolve()
+        it = None
+        if self.root:
+            try:
+                p.relative_to(self.root.resolve())
+                it = self.find(("folder", library.Folder(p.parent, p.parent.name)))
+            except ValueError:
+                pass
+        if it:
+            self.tree.setCurrentItem(it)
+            self.tree.scrollToItem(it, QAbstractItemView.PositionAtCenter)
+        else:
+            try:
+                files = sorted((x for x in p.parent.iterdir() if library.kind(x) and not x.name.startswith(".")),
+                               key=lambda x: x.name.lower())
+            except OSError:
+                files = [p]
+            self.items.set_paths(files)
+            for x in files:
+                hit = thumbs.cached(x)
+                if hit:
+                    self.items.got(x, *hit)
+            self.head.setText(span(p.parent.name, "fg", True) + span(f"   {p.parent}", "dim")
+                              + span("   (not in your library: just looking)", "mid"))
+            self.ask_thumbs()
+        row = self.items.row.get(p)
+        if row is None:
+            self.say(f"can't show {p.name}", "bad")
+            return
+        self.side = "photos"
+        self.grid.setCurrentIndex(self.items.index(row))
+        self.open_viewer(row)
+
+    # ---- organize (organize.py): n new event, F2 / e rename, m move, z undo
+    def command(self, what: str):
+        if not self.root or self.pages.currentWidget() not in (self.pages.widget(0), self.viewer):
+            return
+        try:
+            {"new": self.new_event, "rename": self.rename_event, "move": self.move_files, "undo": self.undo}[what]()
+        except (OSError, ValueError) as ex:
+            self.say(str(ex), "bad")
+
+    def say(self, text: str, color: str = "acc"):
+        """A message in the keys bar until the next key."""
+        self.keys.setText(span(text, color))
+
+    def selected_event(self):
+        it = self.tree.currentItem()
+        kind, v = it.data(0, Qt.UserRole) if it else (None, None)
+        return it, kind, v
+
+    def rename_event(self):
+        it, kind, v = self.selected_event()
+        if kind != "folder" or v.name == "loose files" or v.path == self.root:
+            self.say("pick an event folder to rename", "warn")
+            return
+        d = Ask(self, "Rename", [("new name", v.path.name)],
+                "Only the folder's name changes; the photos stay in it. z puts the old name back.")
+        if d.exec() and d.values()[0].strip() != v.path.name:
+            new = organize.rename_event(v.path, d.values()[0])
+            self.reload_at(new)
+            self.say(f"renamed to {new.name}   (z undoes)")
+
+    def new_event(self):
+        it, kind, v = self.selected_event()
+        now = datetime.now()
+        y, m = now.year, now.month
+        if kind == "folder" and v.month:
+            y, m = int(v.year), v.month
+        elif kind == "month":
+            y, m = int(v[0]), v[1]
+        elif kind == "year" and str(v).isdigit():
+            y = int(v)
+        d = Ask(self, "New event", [("month (year-month)", f"{y:04d}-{m:02d}"), ("name", "")],
+                f"Makes an empty folder in {self.root} / year / month. Then move photos into it with m.")
+        if not d.exec():
+            return
+        when, name = d.values()
+        mt = re.match(r"^\s*(\d{4})\D+(\d{1,2})\s*$", when)
+        if not mt or not 1 <= int(mt.group(2)) <= 12:
+            raise ValueError("the month should look like 2026-06")
+        path = organize.new_event(self.root, int(mt.group(1)), int(mt.group(2)), name)
+        self.reload_at(path)
+        self.say(f"made {path.name}: it shows once it has photos.  m on photos moves them here   (z undoes)")
+        self.made = path
+
+    made: Path | None = None  # a new, still empty event: offered first when moving
+
+    def events(self) -> list[tuple[str, Path]]:
+        """Every event and subfolder, as "2026 · 06 June · Grand Teton", for the move list."""
+        out = []
+        if self.made and self.made.is_dir():
+            out.append((f"{self.made.parent.parent.name} · {self.made.parent.name} · {self.made.name}   (new)", self.made))
+
+        def add(f: library.Folder, prefix: str):
+            name = f"{prefix}{f.name}"
+            if f.path not in [p for _, p in out]:
+                out.append((name, f.path))
+            for c in f.children:
+                add(c, name + " / ")
+        for f in self.folders:
+            when = f"{f.year} · {f.month:02d} {library.MONTHS[f.month - 1]} · " if f.month else f"{f.year} · "
+            add(f, when)
+        return out
+
+    def move_files(self):
+        viewing = self.pages.currentWidget() is self.viewer
+        if viewing:
+            files = [self.viewer.paths[self.viewer.i]] if self.viewer.paths else []
+        else:
+            if self.side != "photos":
+                self.say("m moves photos: go to the photos first", "warn")
+                return
+            rows = sorted({i.row() for i in self.grid.selectionModel().selectedIndexes()}) or \
+                ([self.grid.currentIndex().row()] if self.grid.currentIndex().isValid() else [])
+            files = [self.items.paths[r] for r in rows]
+        if not files:
+            return
+        if viewing:
+            self.viewer.video.stop()
+        what = files[0].name if len(files) == 1 else f"{len(files)} files"
+        d = PickEvent(self, f"Move {what} to…", self.events())
+        if not d.exec() or not d.chosen:
+            return
+        done = organize.move(files, d.chosen)
+        if viewing:  # carry on with the next one
+            gone = {a for a, _ in done}
+            i = self.viewer.i
+            self.viewer.paths = [x for x in self.viewer.paths if x not in gone]
+            if not self.viewer.paths:
+                self.close_viewer()
+            else:
+                self.viewer.i = min(i, len(self.viewer.paths) - 1)
+                self.viewer.show_current()
+        self.reload_keep()
+        self.say(f"moved {what} to {d.chosen.name}   (z undoes)")
+
+    def undo(self):
+        what = organize.undo()
+        if self.pages.currentWidget() is self.viewer:
+            self.close_viewer()
+        self.reload_keep()
+        self.say(f"undone: {what}")
+
+    def reload_at(self, path: Path):
+        """Reload the folders and land on the one at path (if it has anything in it)."""
+        self.reload()
+        it = self.find(("folder", library.Folder(path, path.name)))
+        if it:
+            self.tree.setCurrentItem(it)
+            self.tree.scrollToItem(it, QAbstractItemView.PositionAtCenter)
+        self.tree.setFocus()
+
+    def reload_keep(self):
+        """Reload, staying on the same folder and roughly the same photo."""
+        row = self.grid.currentIndex().row()
+        self.reload()
+        if self.items.paths and row >= 0:
+            self.grid.setCurrentIndex(self.items.index(min(row, len(self.items.paths) - 1)))
+        if self.side == "photos" and self.pages.currentIndex() == 0:
+            self.grid.setFocus()
 
     # ---- ingest (ingest.py)
     def open_ingest(self):
@@ -648,6 +1065,7 @@ class Shoebox(QWidget):
         was = cur.data(0, Qt.UserRole) if cur else None
         self.tree.clear()
         folders = library.scan(self.root) if self.root and self.root.is_dir() else []
+        self.folders = folders
         if not self.root:
             self.head.setText(span("Welcome to Shoebox.", "fg", True)
                               + span("   Press s (Settings) to choose your photos folder.", "mid"))
@@ -971,16 +1389,22 @@ class Shoebox(QWidget):
             keys = [("VIEWING", ""), ("←→", "previous / next"), ("home end", "first / last")]
             if video:
                 keys += [("space", "play / pause"), ("shift ←→", "5 s"), (", .", "1 s")]
-            keys += ([] if video else [("t", "turn")]) + [("o", "open in its app"), ("d", "show in file manager"),
-                                                          ("f", "full screen"), ("esc", "back to thumbnails"), ("q", "quit")]
+            else:
+                keys += [("ctrl + −", "zoom"), ("ctrl ←→↑↓", "move")] if self.viewer.pic.zoom > 1 else [("ctrl +", "zoom")]
+                keys += [("t", "turn")]
+            keys += [("m", "move"), ("i", "info"), ("p", "stop slideshow" if self.viewer.sliding else "slideshow")]
+            if self.viewer.sliding:
+                keys += [("space", "pause")] if not video else []
+            keys += [("o", "open in its app"), ("d", "show in file manager"), ("f", "full screen"),
+                     ("esc", "back to thumbnails"), ("q", "quit")]
         elif self.search.hasFocus():
             keys = [("SEARCH", ""), ("type", "filter folders"), ("enter ↓", "to the folders"), ("esc", "clear")]
         elif self.grid.hasFocus():
-            keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("t", "turn"), ("o", "open in its app"),
+            keys = [("PHOTOS", ""), ("arrows", "move"), ("enter", "view"), ("+ −", "size"), ("t", "turn"), ("m", "move to…"), ("shift ctrl", "pick several"), ("p", "slideshow"), ("z", "undo"), ("o", "open in its app"),
                     ("d", "show in file manager"), ("esc", "back to folders"), ("f", "full screen"), ("q", "quit")]
         else:
             keys = [("FOLDERS", ""), ("↑↓", "move"), ("←", "fold"), ("→", "unfold, then to the photos"), ("enter", "open / close, or to the photos"),
-                    ("/", "search"), ("i", "ingest"), ("D", "duplicates"), ("d", "open in file manager"), ("s", "settings"), ("r", "reload"), ("f", "full screen"), ("esc q", "quit")]
+                    ("/", "search"), ("n", "new event"), ("F2", "rename"), ("z", "undo"), ("p", "slideshow"), ("i", "ingest"), ("D", "duplicates"), ("d", "open in file manager"), ("s", "settings"), ("r", "reload"), ("f", "full screen"), ("esc q", "quit")]
         self.keys.setText("   ".join(span(k, "acc" if not d else "mid", True) + (span(f" {d}", "dim") if d else "")
                                      for k, d in keys))
 
@@ -994,6 +1418,96 @@ class Shoebox(QWidget):
     def closeEvent(self, e):
         self.viewer.video.stop()
         super().closeEvent(e)
+
+
+DIALOG_QSS = (f"QDialog {{ background: {C['panel']}; }} QPushButton {{ background: {C['cur']}; color: {C['fg']}; "
+              f"border: 1px solid {C['line']}; padding: 7px 14px; }} "
+              f"QPushButton:focus, QPushButton:hover {{ border-color: {C['acc']}; }}")
+
+
+class Ask(QDialog):
+    """A small question with text boxes: Enter OKs, Esc cancels. fields: [(label, starting text)]."""
+
+    def __init__(self, win, title: str, fields: list[tuple[str, str]], note: str = ""):
+        super().__init__(win)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(560)
+        self.setStyleSheet(DIALOG_QSS)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(24, 20, 24, 20)
+        v.setSpacing(8)
+        v.addWidget(label(span(title, "fg", True), size=13))
+        self.boxes = []
+        for name, text in fields:
+            v.addWidget(label(span(name.upper(), "dim")))
+            box = QLineEdit(text)
+            box.returnPressed.connect(self.accept)
+            v.addWidget(box)
+            self.boxes.append(box)
+        if note:
+            n = label(span(note, "dim"), size=10)
+            n.setWordWrap(True)
+            v.addWidget(n)
+        v.addWidget(label(span("enter", "acc", True) + span(" ok    ", "dim") + span("esc", "acc", True)
+                          + span(" cancel", "dim"), size=10))
+        self.boxes[-1].setFocus()
+        self.boxes[-1].selectAll()
+
+    def values(self) -> list[str]:
+        return [b.text() for b in self.boxes]
+
+
+class PickEvent(QDialog):
+    """Choose an event to move photos to: type to narrow the list, ↑↓, Enter."""
+
+    def __init__(self, win, title: str, events: list[tuple[str, Path]]):
+        super().__init__(win)
+        self.setWindowTitle(title)
+        self.setMinimumSize(640, 560)
+        self.setStyleSheet(DIALOG_QSS)
+        self.events, self.chosen = events, None
+        v = QVBoxLayout(self)
+        v.setContentsMargins(24, 20, 24, 20)
+        v.setSpacing(8)
+        v.addWidget(label(span(title, "fg", True), size=13))
+        self.box = QLineEdit()
+        self.box.setPlaceholderText("type to find an event…")
+        self.box.textChanged.connect(self.fill)
+        self.box.installEventFilter(self)
+        v.addWidget(self.box)
+        self.list = QListWidget()
+        self.list.itemActivated.connect(lambda _i: self.pick())
+        v.addWidget(self.list, 1)
+        v.addWidget(label(span("↑↓", "acc", True) + span(" choose    ", "dim") + span("enter", "acc", True)
+                          + span(" move here    ", "dim") + span("esc", "acc", True) + span(" cancel", "dim"), size=10))
+        self.fill("")
+        self.box.setFocus()
+
+    def fill(self, text: str):
+        q = text.strip().lower()
+        self.list.clear()
+        for name, path in self.events:
+            if all(w in name.lower() for w in q.split()):
+                it = QListWidgetItem(name)
+                it.setData(Qt.UserRole, path)
+                self.list.addItem(it)
+        self.list.setCurrentRow(0)
+
+    def eventFilter(self, obj, e):
+        if obj is self.box and e.type() == QEvent.KeyPress:
+            if e.key() in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown):
+                QApplication.sendEvent(self.list, e)
+                return True
+            if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self.pick()
+                return True
+        return super().eventFilter(obj, e)
+
+    def pick(self):
+        it = self.list.currentItem()
+        if it:
+            self.chosen = it.data(Qt.UserRole)
+            self.accept()
 
 
 class Settings(QDialog):
@@ -1100,6 +1614,7 @@ class Tree(QTreeWidget):
     """Enter (or a double-click) opens or closes a year, month or folder with subfolders, and goes to the
     thumbnails of a folder with only photos. → on an open or photos-only folder goes to the thumbnails."""
     to_grid = Signal()
+    command = Signal(str)
 
     def mouseDoubleClickEvent(self, e):
         it = self.itemAt(e.position().toPoint())
@@ -1119,6 +1634,8 @@ class Tree(QTreeWidget):
             self.to_grid.emit()
         elif e.key() == Qt.Key_Escape:  # viewer -> photos -> folders -> quit: Esc all the way out
             QApplication.quit()
+        elif command_of(e) in ("new", "rename", "undo"):
+            self.command.emit(command_of(e))
         else:
             super().keyPressEvent(e)
 
@@ -1134,11 +1651,23 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
     app.setWindowIcon(QIcon(str(ICON)))
-    root = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else ROOT
+    arg = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else None
+    opened = arg if arg and arg.is_file() else None  # shoebox photo.jpg (Open with)
+    root = arg if arg and arg.is_dir() else ROOT  # shoebox some/folder: look at that folder this once
     w = Shoebox(root)
     w.resize(1600, 980)  # the size it comes back to if you un-maximize it
     w.showMaximized()
-    if not root:  # first start: pick the photos folder
+    if opened:
+        QTimer.singleShot(0, lambda: w.open_file(opened))
+    elif not root:  # first start: pick the photos folder
         QTimer.singleShot(300, w.open_settings)
+
+    class OpenEvents(QObject):  # macOS sends a file opened with Shoebox as an event, not an argument
+        def eventFilter(self, obj, e):
+            if e.type() == QEvent.FileOpen and e.file():
+                w.open_file(Path(e.file()))
+                return True
+            return False
+    app.installEventFilter(opener := OpenEvents())
     code = app.exec()
     os._exit(code)  # don't wait for thumbnail workers

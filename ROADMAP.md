@@ -25,6 +25,7 @@ Branches: `main` is the last version Andrew said works; new work goes on `dev` a
    - Uninstall keeps the photos (Shoebox never stores them); optionally removes its settings and thumbnails.
 
 ## Done
+- **Zoom, info panel, slideshow, new/rename/move events + undo, Open with** (dev, 2026-10-27).
 - **Turn (t)** (dev, 2026-10-27): a quarter turn clockwise, saved; JPEGs lossless (EXIF orientation).
 - **Duplicates** (v1.2, 2026-10-27): Shift+D; sets side by side, keep the best, rest to the trash, z undoes.
 - **v1.1.0**: Ingest, r reloads; the picture decides, not names or metadata.
