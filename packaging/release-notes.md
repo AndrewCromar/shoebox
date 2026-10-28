@@ -1,6 +1,16 @@
 **Shoebox** is a simple photo, video and audio viewer: your folders by year, month and trip on the left,
 thumbnails on the right, full size with Enter. It only looks; it never changes your photos unless you ask.
 
+### What's new in 1.4
+- **Zoom:** full size, Ctrl + / Ctrl − (or = and _), Ctrl 0 fits; Ctrl arrows or drag to move around.
+- **Info (i):** a side panel with the file's details and what the camera wrote (camera, lens, exposure, GPS…).
+- **Slideshow (p):** full screen, photos fade into each other, videos play muted (v for sound).
+- **Organize:** n makes a new event, F2 renames one, m moves photos to another event (shift/ctrl pick several),
+  z undoes. Nothing is deleted.
+- **t** turns every selected photo.
+- **Open with:** Shoebox can open a photo, video or song from your file manager, even outside your media folder
+  (it just looks). You can pick it as your default viewer.
+
 ### What's new in 1.3
 - **Turn (t):** a quarter turn clockwise, on a thumbnail or full size; press again for more. Saved in the file:
   JPEGs keep every pixel (only the orientation tag changes, like a phone does).
