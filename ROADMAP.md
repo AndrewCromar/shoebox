@@ -3,7 +3,7 @@
 Branches: `main` is the last version Andrew said works; new work goes on `dev` and is merged into main when he says.
 
 ## Next
-1. Andrew tests Ingest (v1.1) and Duplicates (dev). A friend tests the Mac version.
+1. Andrew tests Ingest (v1.1) and Duplicates (v1.2). A friend tests the Mac version.
 
 ## Later
 2. **Ingest** (Andrew, 2026-10-27): bring photos from outside (friends' uploads, a phone dump) into an event.
@@ -25,7 +25,7 @@ Branches: `main` is the last version Andrew said works; new work goes on `dev` a
    - Uninstall keeps the photos (Shoebox never stores them); optionally removes its settings and thumbnails.
 
 ## Done
-- **Duplicates** (dev, 2026-10-27): Shift+D; sets side by side, keep the best, rest to the trash, z undoes.
+- **Duplicates** (v1.2, 2026-10-27): Shift+D; sets side by side, keep the best, rest to the trash, z undoes.
 - **v1.1.0**: Ingest, r reloads; the picture decides, not names or metadata.
 - **Ingest** + the matcher (dev, 2026-10-27): i opens it; NEW / HAVE / MAYBE, tick, move in, logged, z undoes.
 - **v1.0.0** (2026-10-27): Windows installer, Mac .dmg, Linux install command, in-app updates. Tested on
