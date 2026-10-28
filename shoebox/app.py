@@ -1336,28 +1336,33 @@ class Shoebox(QWidget):
         return self.items.paths[i.row()] if i.isValid() else None
 
     def turn(self):
-        """t: the photo a quarter turn clockwise, saved (rotate.py); again for more."""
+        """t: the photo (or every selected one) a quarter turn clockwise, saved (rotate.py); again for more."""
         viewing = self.pages.currentWidget() is self.viewer
-        if not viewing and not (self.pages.currentIndex() == 0 and self.side == "photos"):
+        if viewing:
+            files = [self.viewer.paths[self.viewer.i]] if self.viewer.paths else []
+        elif self.pages.currentIndex() == 0 and self.side == "photos":
+            rows = sorted({i.row() for i in self.grid.selectionModel().selectedIndexes()})
+            files = [self.items.paths[r] for r in rows] or ([self.current_path()] if self.current_path() else [])
+        else:
             return
-        p = self.current_path()
-        if not p or library.kind(p) != "image":
-            return
-        if not rotate.can_rotate(p):
-            self.keys.setText(span(f"{p.suffix} photos can't be turned", "warn"))
-            return
-        try:
-            rotate.rotate(p)
-        except Exception as ex:
-            self.keys.setText(span(f"couldn't turn {p.name}: {ex}", "bad"))
-            return
-        self.items.pix.pop(p, None)  # the grid makes a new thumbnail
-        self.items.jpg.pop(p, None)
-        self.viewer.cache.pop(p, None)
-        if viewing and self.viewer.image is not None and self.viewer.paths[self.viewer.i] == p:
-            self.viewer.image = self.viewer.image.transformed(QTransform().rotate(90))  # at once, then sharp
-            self.viewer.fit()
-            self.viewer.want([p])
+        files = [f for f in files if library.kind(f) == "image"]
+        for p in files:
+            if not rotate.can_rotate(p):
+                self.say(f"{p.suffix} photos can't be turned", "warn")
+                continue
+            try:
+                rotate.rotate(p)
+            except Exception as ex:
+                self.say(f"couldn't turn {p.name}: {ex}", "bad")
+                continue
+            self.items.pix.pop(p, None)  # the grid makes a new thumbnail
+            self.items.jpg.pop(p, None)
+            self.viewer.cache.pop(p, None)
+            if viewing and self.viewer.image is not None and self.viewer.paths[self.viewer.i] == p:
+                self.viewer.full = None
+                self.viewer.image = self.viewer.image.transformed(QTransform().rotate(90))  # at once, then sharp
+                self.viewer.fit()
+                self.viewer.want([p])
         self.ask_thumbs()
 
     def open_external(self):
