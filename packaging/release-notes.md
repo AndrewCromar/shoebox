@@ -1,6 +1,10 @@
 **Shoebox** is a simple photo, video and audio viewer: your folders by year, month and trip on the left,
 thumbnails on the right, full size with Enter. It only looks; it never changes your photos unless you ask.
 
+### What's new in 1.4.1
+- **Linux:** fixes a crash after scrolling for a while. The installer now uses Python 3.12 or newer and rebuilds
+  an older setup when you update (u).
+
 ### What's new in 1.4
 - **Zoom:** full size, Ctrl + / Ctrl − (or = and _), Ctrl 0 fits; Ctrl arrows or drag to move around.
 - **Info (i):** a side panel with the file's details and what the camera wrote (camera, lens, exposure, GPS…).
